@@ -1,7 +1,7 @@
 {
   "name": "career-ops",
   "version": "1.0.0",
-  "description": "AI-powered job search pipeline built on Claude Code",
+  "description": "AI-powered job search pipeline with an agent-agnostic core",
   "scripts": {
     "doctor": "node doctor.mjs",
     "verify": "node verify-pipeline.mjs",
@@ -15,7 +15,7 @@
     "rollback": "node update-system.mjs rollback",
     "liveness": "node check-liveness.mjs"
   },
-  "keywords": ["ai", "job-search", "claude-code", "career", "automation"],
+  "keywords": ["ai", "job-search", "career", "automation", "agents"],
   "author": "Santiago Fernández de Valderrama <hi@santifer.io> (https://santifer.io)",
   "homepage": "https://santifer.io",
   "repository": {

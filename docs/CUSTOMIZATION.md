@@ -49,9 +49,9 @@ The negotiation section provides frameworks for salary discussions. Replace the 
 - Geographic arbitrage strategy
 - Pushback responses
 
-## Hooks (Optional)
+## Runtime Hooks (Optional)
 
-Career-ops can integrate with external systems via Claude Code hooks. Example hooks:
+Career-ops can integrate with external systems via runtime-specific hooks. Claude/OpenCode users can keep using `.claude/settings.json`; other runtimes should wire the equivalent automation on their side.
 
 ```json
 {
@@ -66,7 +66,7 @@ Career-ops can integrate with external systems via Claude Code hooks. Example ho
 }
 ```
 
-Save hooks in `.claude/settings.json`.
+Save Claude/OpenCode hooks in `.claude/settings.json`.
 
 ## States (templates/states.yml)
 

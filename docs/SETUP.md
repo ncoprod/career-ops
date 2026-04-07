@@ -2,7 +2,9 @@
 
 ## Prerequisites
 
-- [Claude Code](https://claude.ai/code) installed and configured
+- A coding-agent runtime of your choice
+  - Claude Code / OpenCode keep native slash-command support
+  - Codex, Gemini CLI, and other runtimes can use the same core files through `AGENTS.md`
 - Node.js 18+ (for PDF generation and utility scripts)
 - (Optional) Go 1.21+ (for the dashboard TUI)
 
@@ -44,13 +46,9 @@ Edit `portals.yml`:
 
 ### 5. Start using
 
-Open Claude Code in this directory:
+Open this directory in your preferred agent runtime. The universal behavior is documented in `AGENTS.md`. Claude/OpenCode users can keep using the existing slash commands.
 
-```bash
-claude
-```
-
-Then paste a job offer URL or description. Career-ops will automatically evaluate it, generate a report, create a tailored PDF, and track it.
+Then paste a job offer URL or description. Career-ops will evaluate it, generate a report, create a tailored PDF, and track it.
 
 ## Available Commands
 
@@ -63,6 +61,8 @@ Then paste a job offer URL or description. Career-ops will automatically evaluat
 | Batch evaluate | `/career-ops batch` |
 | Check tracker status | `/career-ops tracker` |
 | Fill application form | `/career-ops apply` |
+
+If your runtime does not support slash commands, ask for the corresponding mode conversationally (for example: "run scan mode" or "evaluate this JD with auto-pipeline").
 
 ## Verify Setup
 

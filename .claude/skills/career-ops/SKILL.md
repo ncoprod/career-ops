@@ -7,6 +7,8 @@ args: mode
 
 # career-ops -- Router
 
+`AGENTS.md` is the canonical runtime-neutral guide. This skill is only the Claude/OpenCode router layer.
+
 ## Mode Routing
 
 Determine the mode from `{{mode}}`:
@@ -54,7 +56,7 @@ Available commands:
   /career-ops tracker   → Application status overview
   /career-ops apply     → Live application assistant (reads form + generates answers)
   /career-ops scan      → Scan portals and discover new offers
-  /career-ops batch     → Batch processing with parallel workers
+  /career-ops batch     → Batch processing with agent workers
 
 Inbox: add URLs to data/pipeline.md → /career-ops pipeline
 Or paste a JD directly to run the full pipeline.

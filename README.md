@@ -2,9 +2,9 @@
 
 **[:gb: English](#what-is-this)** | **[:es: Español](#es-versión-en-español)**
 
-> AI-powered job search pipeline built on Claude Code. Evaluate offers, generate tailored CVs, scan portals, and track everything -- powered by AI agents.
+> AI-powered job search pipeline with an agent-agnostic core. Evaluate offers, generate tailored CVs, scan portals, and track everything with your preferred coding agent.
 
-![Claude Code](https://img.shields.io/badge/Claude_Code-000?style=flat&logo=anthropic&logoColor=white)
+![Agent Agnostic](https://img.shields.io/badge/Agents-Multi--runtime-0A0A0A?style=flat)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat&logo=playwright&logoColor=white)
@@ -18,7 +18,7 @@
 
 ## What Is This
 
-Career-Ops turns Claude Code into a full job search command center. Instead of manually tracking applications in a spreadsheet, you get an AI-powered pipeline that:
+Career-Ops turns a local coding agent into a full job search command center. Instead of manually tracking applications in a spreadsheet, you get an AI-powered pipeline that:
 
 - **Evaluates offers** with a structured A-F scoring system (10 weighted dimensions)
 - **Generates tailored PDFs** -- ATS-optimized CVs customized per job description
@@ -28,7 +28,7 @@ Career-Ops turns Claude Code into a full job search command center. Instead of m
 
 > **Important: This is NOT a spray-and-pray tool.** Career-ops is a filter -- it helps you find the few offers worth your time out of hundreds. The system strongly recommends against applying to anything scoring below 4.0/5. Your time is valuable, and so is the recruiter's. Always review before submitting.
 
-Career-ops is agentic: Claude Code navigates career pages with Playwright, evaluates fit by reasoning about your CV vs the job description (not keyword matching), and adapts your resume per listing.
+Career-ops is agentic: your runtime can navigate career pages with Playwright, evaluate fit by reasoning about your CV vs the job description (not keyword matching), and adapt your resume per listing.
 
 > **Heads up: the first evaluations won't be great.** The system doesn't know you yet. Feed it context -- your CV, your career story, your proof points, your preferences, what you're good at, what you want to avoid. The more you nurture it, the better it gets. Think of it as onboarding a new recruiter: the first week they need to learn about you, then they become invaluable.
 
@@ -44,7 +44,7 @@ Built by someone who used it to evaluate 740+ job offers, generate 100+ tailored
 | **Negotiation Scripts** | Salary negotiation frameworks, geographic discount pushback, competing offer leverage |
 | **ATS PDF Generation** | Keyword-injected CVs with Space Grotesk + DM Sans design |
 | **Portal Scanner** | 45+ companies pre-configured (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + custom queries across Ashby, Greenhouse, Lever, Wellfound |
-| **Batch Processing** | Parallel evaluation with `claude -p` workers |
+| **Batch Processing** | Parallel evaluation through an agent adapter contract |
 | **Dashboard TUI** | Terminal UI to browse, filter, and sort your pipeline |
 | **Human-in-the-Loop** | AI evaluates and recommends, you decide and act. The system never submits an application -- you always have the final call |
 | **Pipeline Integrity** | Automated merge, dedup, status normalization, health checks |
@@ -67,10 +67,10 @@ cp templates/portals.example.yml portals.yml       # Customize companies
 # 4. Add your CV
 # Create cv.md in the project root with your CV in markdown
 
-# 5. Personalize with Claude
-claude   # Open Claude Code in this directory
+# 5. Personalize with your agent
+# Open this directory in Codex, Claude Code, OpenCode, or another compatible runtime
 
-# Then ask Claude to adapt the system to you:
+# Then ask the agent to adapt the system to you:
 # "Change the archetypes to backend engineering roles"
 # "Translate the modes to English"
 # "Add these 5 companies to portals.yml"
@@ -80,13 +80,13 @@ claude   # Open Claude Code in this directory
 # Paste a job URL or run /career-ops
 ```
 
-> **The system is designed to be customized by Claude itself.** Modes, archetypes, scoring weights, negotiation scripts -- just ask Claude to change them. It reads the same files it uses, so it knows exactly what to edit.
+> **The system is designed to be customized by the agent you already use.** Modes, archetypes, scoring weights, negotiation scripts -- just ask it to change them. The core rules now live in `AGENTS.md`, while platform-specific files stay thin.
 
 See [docs/SETUP.md](docs/SETUP.md) for the full setup guide.
 
 ## Usage
 
-Career-ops is a single slash command with multiple modes:
+Career-ops exposes the same mode system across agent runtimes. In Claude/OpenCode you can use slash commands; in Codex or Gemini CLI you can invoke the same modes conversationally.
 
 ```
 /career-ops                → Show all available commands
@@ -158,7 +158,8 @@ Features: 6 filter tabs, 4 sort modes, grouped/flat view, lazy-loaded previews, 
 
 ```
 career-ops/
-├── CLAUDE.md                    # Agent instructions
+├── AGENTS.md                    # Universal agent instructions
+├── CLAUDE.md                    # Claude compatibility layer
 ├── cv.md                        # Your CV (create this)
 ├── article-digest.md            # Your proof points (optional)
 ├── config/
@@ -188,13 +189,13 @@ career-ops/
 
 ## Tech Stack
 
-![Claude Code](https://img.shields.io/badge/Claude_Code-000?style=flat&logo=anthropic&logoColor=white)
+![Agent Agnostic](https://img.shields.io/badge/Agents-Multi--runtime-0A0A0A?style=flat)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat&logo=playwright&logoColor=white)
 ![Go](https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white)
 ![Bubble Tea](https://img.shields.io/badge/Bubble_Tea-FF75B5?style=flat&logo=go&logoColor=white)
 
-- **Agent**: Claude Code with custom skills and modes
+- **Agent layer**: universal core (`AGENTS.md`) + thin adapters for Claude/OpenCode and external runtimes
 - **PDF**: Playwright/Puppeteer + HTML template
 - **Scanner**: Playwright + Greenhouse API + WebSearch
 - **Dashboard**: Go + Bubble Tea + Lipgloss (Catppuccin Mocha theme)
@@ -216,7 +217,7 @@ My portfolio and other open source projects → [santifer.io](https://santifer.i
 
 **career-ops is a local, open-source tool — NOT a hosted service.** By using this software, you acknowledge:
 
-1. **You control your data.** Your CV, contact info, and personal data stay on your machine and are sent directly to the AI provider you choose (Anthropic, OpenAI, etc.). We do not collect, store, or have access to any of your data.
+1. **You control your data.** Your CV, contact info, and personal data stay on your machine and are sent directly to the AI provider or local runtime you choose. We do not collect, store, or have access to any of your data.
 2. **You control the AI.** The default prompts instruct the AI not to auto-submit applications, but AI models can behave unpredictably. If you modify the prompts or use different models, you do so at your own risk. **Always review AI-generated content for accuracy before submitting.**
 3. **You comply with third-party ToS.** You must use this tool in accordance with the Terms of Service of the career portals you interact with (Greenhouse, Lever, Workday, LinkedIn, etc.). Do not use this tool to spam employers or overwhelm ATS systems.
 4. **No guarantees.** Evaluations are recommendations, not truth. AI models may hallucinate skills or experience. The authors are not liable for employment outcomes, rejected applications, account restrictions, or any other consequences.
@@ -233,7 +234,7 @@ MIT
 
 ## Que es esto
 
-Career-Ops convierte Claude Code en un centro de mando de busqueda de empleo. En vez de trackear aplicaciones en un spreadsheet, tienes un pipeline AI que:
+Career-Ops convierte tu agente de coding en un centro de mando de busqueda de empleo. En vez de trackear aplicaciones en un spreadsheet, tienes un pipeline AI que:
 
 - **Evalua ofertas** con scoring estructurado A-F (10 dimensiones ponderadas)
 - **Genera PDFs personalizados** -- CVs ATS-optimizados por oferta
@@ -264,10 +265,10 @@ cp templates/portals.example.yml portals.yml       # Personalizar empresas
 # 4. Añadir tu CV
 # Crear cv.md en la raiz del proyecto con tu CV en markdown
 
-# 5. Personalizar con Claude
-claude   # Abrir Claude Code en este directorio
+# 5. Personalizar con tu agente
+# Abre este directorio en Codex, Claude Code, OpenCode u otro runtime compatible
 
-# Pidele a Claude que adapte el sistema a ti:
+# Pidele al agente que adapte el sistema a ti:
 # "Cambia los arquetipos a roles de backend"
 # "Traduce los modes a ingles"
 # "Añade estas empresas a portals.yml"
@@ -277,7 +278,7 @@ claude   # Abrir Claude Code en este directorio
 # Pega una URL de oferta o ejecuta /career-ops
 ```
 
-> **El sistema esta diseñado para que Claude lo personalice.** Modes, arquetipos, scoring, scripts de negociacion -- solo pidelo. Claude lee los mismos archivos que usa, asi que sabe exactamente que editar.
+> **El sistema esta diseñado para que lo personalice el agente que ya usas.** Modes, arquetipos, scoring y scripts de negociacion siguen siendo editables, pero la fuente de verdad ahora es `AGENTS.md`.
 
 Guia completa en [docs/SETUP.md](docs/SETUP.md).
 

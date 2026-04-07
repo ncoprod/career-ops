@@ -29,6 +29,7 @@ const RELEASES_API = 'https://api.github.com/repos/santifer/career-ops/releases/
 
 // System layer paths — ONLY these files get updated
 const SYSTEM_PATHS = [
+  'AGENTS.md',
   'modes/_shared.md',
   'modes/_profile.template.md',
   'modes/oferta.md',
@@ -55,6 +56,7 @@ const SYSTEM_PATHS = [
   'update-system.mjs',
   'batch/batch-prompt.md',
   'batch/batch-runner.sh',
+  'batch/agent-adapter.example.sh',
   'dashboard/',
   'templates/',
   'fonts/',

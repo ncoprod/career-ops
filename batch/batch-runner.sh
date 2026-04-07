@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# career-ops batch runner — standalone orchestrator for claude -p workers
-# Reads batch-input.tsv, delegates each offer to a claude -p worker,
+# career-ops batch runner — standalone orchestrator for agent workers
+# Reads batch-input.tsv, delegates each offer to an agent worker,
 # tracks state in batch-state.tsv for resumability.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,11 +25,18 @@ DRY_RUN=false
 RETRY_FAILED=false
 START_FROM=0
 MAX_RETRIES=2
+AGENT="${CAREER_OPS_AGENT:-claude}"
+AGENT_ADAPTER="${CAREER_OPS_AGENT_ADAPTER:-}"
 
 usage() {
   cat <<'USAGE'
-career-ops batch runner — process job offers in batch via claude -p workers
-Uses your default Claude model (Claude Max subscription).
+career-ops batch runner — process job offers in batch via agent workers
+
+Built-in verified provider:
+  - claude
+
+All other providers must be wired through an adapter script. This avoids
+guessing unsupported CLI flags for Codex, Gemini CLI, or custom runtimes.
 
 Usage: batch-runner.sh [OPTIONS]
 
@@ -39,6 +46,7 @@ Options:
   --retry-failed       Only retry offers marked as "failed" in state
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
+  --agent NAME         Worker provider (default: env CAREER_OPS_AGENT or "claude")
   -h, --help           Show this help
 
 Files:
@@ -60,6 +68,9 @@ Examples:
 
   # Process 2 at a time starting from ID 10
   ./batch-runner.sh --parallel 2 --start-from 10
+
+  # Use a custom adapter for another runtime
+  CAREER_OPS_AGENT=codex CAREER_OPS_AGENT_ADAPTER=./batch/my-codex-adapter.sh ./batch-runner.sh
 USAGE
 }
 
@@ -71,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --retry-failed) RETRY_FAILED=true; shift ;;
     --start-from) START_FROM="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
+    --agent) AGENT="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -114,12 +126,39 @@ check_prerequisites() {
     exit 1
   fi
 
-  if ! command -v claude &>/dev/null; then
-    echo "ERROR: 'claude' CLI not found in PATH."
-    exit 1
+  if [[ "$AGENT" == "claude" ]]; then
+    if ! command -v claude &>/dev/null; then
+      echo "ERROR: 'claude' CLI not found in PATH."
+      exit 1
+    fi
+  else
+    if [[ -z "$AGENT_ADAPTER" ]]; then
+      echo "ERROR: CAREER_OPS_AGENT_ADAPTER is required for agent '$AGENT'."
+      echo "Use batch/agent-adapter.example.sh as a starting point."
+      exit 1
+    fi
+    if [[ ! -x "$AGENT_ADAPTER" ]]; then
+      echo "ERROR: Adapter is not executable: $AGENT_ADAPTER"
+      exit 1
+    fi
   fi
 
   mkdir -p "$LOGS_DIR" "$TRACKER_DIR" "$REPORTS_DIR"
+}
+
+invoke_worker() {
+  local resolved_prompt="$1"
+  local prompt="$2"
+
+  if [[ "$AGENT" == "claude" ]]; then
+    claude -p \
+      --dangerously-skip-permissions \
+      --append-system-prompt-file "$resolved_prompt" \
+      "$prompt"
+    return
+  fi
+
+  "$AGENT_ADAPTER" "$resolved_prompt" "$prompt"
 }
 
 # Initialize state file if it doesn't exist
@@ -306,12 +345,15 @@ process_offer() {
     -e "s|{{ID}}|${id}|g" \
     "$PROMPT_FILE" > "$resolved_prompt"
 
-  # Launch claude -p worker (uses default model from Claude Max subscription)
+  # Launch worker
   local exit_code=0
-  claude -p \
-    --dangerously-skip-permissions \
-    --append-system-prompt-file "$resolved_prompt" \
-    "$prompt" \
+  CAREER_OPS_PROJECT_DIR="$PROJECT_DIR" \
+    CAREER_OPS_BATCH_DIR="$BATCH_DIR" \
+    CAREER_OPS_AGENT="$AGENT" \
+    CAREER_OPS_BATCH_ID="$id" \
+    CAREER_OPS_REPORT_NUM="$report_num" \
+    CAREER_OPS_TARGET_URL="$url" \
+    invoke_worker "$resolved_prompt" "$prompt" \
     > "$log_file" 2>&1 || exit_code=$?
 
   # Cleanup resolved prompt
@@ -408,7 +450,7 @@ main() {
   fi
 
   echo "=== career-ops batch runner ==="
-  echo "Parallel: $PARALLEL | Max retries: $MAX_RETRIES"
+  echo "Agent: $AGENT | Parallel: $PARALLEL | Max retries: $MAX_RETRIES"
   echo "Input: $total_input offers"
   echo ""
 

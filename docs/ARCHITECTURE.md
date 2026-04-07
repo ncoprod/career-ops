@@ -4,20 +4,20 @@
 
 ```
                     ┌─────────────────────────────────┐
-                    │         Claude Code Agent        │
-                    │   (reads CLAUDE.md + modes/*.md) │
+                    │        Compatible Agent          │
+                    │  (AGENTS.md + runtime adapter)   │
                     └──────────┬──────────────────────┘
                                │
             ┌──────────────────┼──────────────────────┐
             │                  │                       │
      ┌──────▼──────┐   ┌──────▼──────┐   ┌───────────▼────────┐
      │ Single Eval  │   │ Portal Scan │   │   Batch Process    │
-     │ (auto-pipe)  │   │  (scan.md)  │   │   (batch-runner)   │
+     │ (auto-pipe)  │   │  (scan.md)  │   │   (agent adapter)  │
      └──────┬──────┘   └──────┬──────┘   └───────────┬────────┘
             │                  │                       │
             │           ┌──────▼──────┐          ┌────▼─────┐
             │           │ pipeline.md │          │ N workers│
-            │           │ (URL inbox) │          │ (claude -p)
+            │           │ (URL inbox) │          │ (adapter)
             │           └─────────────┘          └────┬─────┘
             │                                          │
      ┌──────▼──────────────────────────────────────────▼──────┐
@@ -56,14 +56,16 @@
 The batch system processes multiple offers in parallel:
 
 ```
-batch-input.tsv    →  batch-runner.sh  →  N × claude -p workers
+batch-input.tsv    →  batch-runner.sh  →  N × agent workers
 (id, url, source)     (orchestrator)       (self-contained prompt)
                            │
                     batch-state.tsv
                     (tracks progress)
 ```
 
-Each worker is a headless Claude instance (`claude -p`) that receives the full `batch-prompt.md` as context. Workers produce:
+Each worker receives the full `batch-prompt.md` plus a short invocation prompt. The only verified built-in provider is Claude; all other runtimes are plugged in through the adapter contract documented in `AGENTS.md`.
+
+Workers produce:
 - Report .md
 - PDF
 - Tracker TSV line

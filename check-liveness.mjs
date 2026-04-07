@@ -5,7 +5,7 @@
  *
  * Tests whether job posting URLs are still active or have expired.
  * Uses the same detection logic as scan.md step 7.5.
- * Zero Claude API tokens — pure Playwright.
+ * Zero agent API tokens - pure Playwright.
  *
  * Usage:
  *   node check-liveness.mjs <url1> [url2] ...
