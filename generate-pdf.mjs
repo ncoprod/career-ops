@@ -128,6 +128,14 @@ async function generatePDF() {
 
   inputPath = resolve(inputPath);
   outputPath = resolve(outputPath);
+  const projectRoot = normalizePathForMatch(__dirname);
+
+  if (!isPathInsideAllowedRoots(outputPath, [projectRoot])) {
+    console.error('Refusing to write PDF outside the project directory.');
+    console.error(`Project root: ${__dirname}`);
+    console.error(`Requested output: ${outputPath}`);
+    process.exit(1);
+  }
 
   // Validate format
   const validFormats = ['a4', 'letter'];

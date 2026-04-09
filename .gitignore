@@ -25,6 +25,7 @@ modes/_profile.md
 
 # Generated
 .resolved-prompt-*
+*.bak
 node_modules/
 
 # OS

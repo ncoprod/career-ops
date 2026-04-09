@@ -253,9 +253,10 @@ console.log('\n2c. PDF generation smoke test');
 
 const pdfSmokeRoot = mkdtempSync(join(tmpdir(), 'career-ops-pdf-smoke-'));
 const pdfSmokeInput = join(pdfSmokeRoot, 'smoke.html');
-const pdfSmokeOutput = join(pdfSmokeRoot, 'smoke.pdf');
+const pdfSmokeOutput = join(ROOT, 'output', `smoke-${Date.now()}-${process.pid}.pdf`);
 
 try {
+  mkdirSync(join(ROOT, 'output'), { recursive: true });
   writeFileSync(
     pdfSmokeInput,
     `<!doctype html>
@@ -300,8 +301,19 @@ try {
   } else {
     fail('generate-pdf.mjs failed ATS normalization/PDF smoke expectations');
   }
+
+  const traversalTarget = join(tmpdir(), `career-ops-traversal-${Date.now()}-${process.pid}.pdf`);
+  const traversalResult = runNode(['generate-pdf.mjs', pdfSmokeInput, traversalTarget, '--format=a4']);
+  const traversalCreated = existsSync(traversalTarget);
+  if (traversalResult === null && !traversalCreated) {
+    pass('generate-pdf.mjs blocks output path traversal outside project');
+  } else {
+    fail('generate-pdf.mjs still allows output path traversal outside project');
+  }
+  rmSync(traversalTarget, { force: true });
 } finally {
   rmSync(pdfSmokeRoot, { recursive: true, force: true });
+  rmSync(pdfSmokeOutput, { force: true });
 }
 
 console.log('\n2d. Fixture-backed pipeline verification');
@@ -328,6 +340,48 @@ if (!existsSync(fixtureBundle)) {
   } finally {
     rmSync(fixtureVerifyRoot, { recursive: true, force: true });
   }
+}
+
+console.log('\n2e. Liveness URL guard tests');
+
+try {
+  const livenessModule = await import(new URL('./check-liveness.mjs', import.meta.url));
+  const validateLivenessUrl = livenessModule?.validatePublicHttpUrl;
+  if (typeof validateLivenessUrl !== 'function') {
+    fail('check-liveness.mjs does not export validatePublicHttpUrl for guard testing');
+  } else {
+    const blockedAlias = await validateLivenessUrl(
+      'https://jobs.example.test/123',
+      async () => ['127.0.0.1'],
+    );
+    if (!blockedAlias.ok && blockedAlias.reason.includes('blocked resolved non-public ip')) {
+      pass('Liveness checker blocks DNS aliases resolving to non-public IPs');
+    } else {
+      fail('Liveness checker allows DNS aliases that resolve to non-public IPs');
+    }
+
+    const allowedPublic = await validateLivenessUrl(
+      'https://jobs.example.test/456',
+      async () => ['93.184.216.34'],
+    );
+    if (allowedPublic.ok) {
+      pass('Liveness checker allows hostnames resolving to public IPs');
+    } else {
+      fail('Liveness checker incorrectly blocks public hostname resolutions');
+    }
+
+    const blockedIpv6Alias = await validateLivenessUrl(
+      'https://jobs.example.test/789',
+      async () => ['::1'],
+    );
+    if (!blockedIpv6Alias.ok && blockedIpv6Alias.reason.includes('blocked resolved non-public ip')) {
+      pass('Liveness checker blocks DNS aliases resolving to loopback IPv6');
+    } else {
+      fail('Liveness checker allows DNS aliases that resolve to loopback IPv6');
+    }
+  }
+} catch {
+  fail('Unable to execute liveness URL guard tests');
 }
 
 // 3. DASHBOARD BUILD
@@ -540,6 +594,18 @@ if (batchRunner.includes('CAREER_OPS_UNSAFE_AGENT_EXEC')) {
   fail('Batch runner missing explicit unsafe execution opt-in');
 }
 
+if (batchRunner.includes('escape_sed_replacement') && batchRunner.includes('mktemp "$BATCH_DIR/.batch-jd-')) {
+  pass('Batch runner escapes sed replacements and uses mktemp for JD file paths');
+} else {
+  fail('Batch runner missing sed escaping or mktemp-based JD paths');
+}
+
+if (batchRunner.includes('s|{{URL}}|${escaped_url}|g') && batchRunner.includes('s|{{ID}}|${escaped_id}|g')) {
+  pass('Batch prompt placeholder replacement uses escaped variables');
+} else {
+  fail('Batch prompt placeholder replacement does not use escaped variables');
+}
+
 const updaterContent = readFile('update-system.mjs');
 if (updaterContent.includes("execFileSync('git', args")) {
   pass('Updater uses argument-based git execution');
@@ -557,6 +623,39 @@ if (!updaterContent.includes('execSync(`git ${cmd}`')) {
   pass('Updater no longer constructs git shell commands from strings');
 } else {
   fail('Updater still constructs git shell commands from strings');
+}
+
+const pdfScript = readFile('generate-pdf.mjs');
+if (pdfScript.includes('Refusing to write PDF outside the project directory.')) {
+  pass('PDF generator blocks output writes outside project directory');
+} else {
+  fail('PDF generator does not block output writes outside project directory');
+}
+
+const livenessScript = readFile('check-liveness.mjs');
+if (
+  livenessScript.includes('validatePublicHttpUrl') &&
+  livenessScript.includes('blocked URL protocol') &&
+  livenessScript.includes('blocked non-public host') &&
+  livenessScript.includes('blocked resolved non-public ip')
+) {
+  pass('Liveness checker validates public HTTP(S) URLs and blocks DNS-resolved private hosts');
+} else {
+  fail('Liveness checker missing URL protocol/host/DNS validation safeguards');
+}
+
+const mergeTrackerScript = readFile('merge-tracker.mjs');
+if (mergeTrackerScript.includes('sanitizeMarkdownCell') && mergeTrackerScript.includes("replace(/\\|/g, '&#124;')")) {
+  pass('Tracker merge sanitizes markdown cell separators');
+} else {
+  fail('Tracker merge missing markdown cell sanitization');
+}
+
+const gitignoreContent = readFile('.gitignore');
+if (gitignoreContent.includes('*.bak')) {
+  pass('.gitignore excludes backup .bak files');
+} else {
+  fail('.gitignore does not exclude backup .bak files');
 }
 
 // 9. VERSION FILE
