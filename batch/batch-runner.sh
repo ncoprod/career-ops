@@ -178,6 +178,11 @@ unsafe_exec_enabled() {
   [[ "$UNSAFE_AGENT_EXEC" == "1" ]]
 }
 
+escape_sed_replacement() {
+  # Escape sed replacement metacharacters to prevent prompt template injection.
+  printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'
+}
+
 invoke_worker() {
   local resolved_prompt="$1"
   local prompt="$2"
@@ -374,7 +379,8 @@ process_offer() {
   report_num=$(reserve_report_num "$id" "$url" "$started_at" "$retries")
   local date
   date=$(date +%Y-%m-%d)
-  local jd_file="/tmp/batch-jd-${id}.txt"
+  local jd_file
+  jd_file=$(mktemp "$BATCH_DIR/.batch-jd-${id}-XXXXXX.txt")
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
@@ -391,12 +397,18 @@ process_offer() {
 
   # Prepare system prompt with placeholders resolved
   local resolved_prompt="$BATCH_DIR/.resolved-prompt-${id}.md"
+  local escaped_url escaped_jd_file escaped_report_num escaped_date escaped_id
+  escaped_url=$(escape_sed_replacement "$url")
+  escaped_jd_file=$(escape_sed_replacement "$jd_file")
+  escaped_report_num=$(escape_sed_replacement "$report_num")
+  escaped_date=$(escape_sed_replacement "$date")
+  escaped_id=$(escape_sed_replacement "$id")
   sed \
-    -e "s|{{URL}}|${url}|g" \
-    -e "s|{{JD_FILE}}|${jd_file}|g" \
-    -e "s|{{REPORT_NUM}}|${report_num}|g" \
-    -e "s|{{DATE}}|${date}|g" \
-    -e "s|{{ID}}|${id}|g" \
+    -e "s|{{URL}}|${escaped_url}|g" \
+    -e "s|{{JD_FILE}}|${escaped_jd_file}|g" \
+    -e "s|{{REPORT_NUM}}|${escaped_report_num}|g" \
+    -e "s|{{DATE}}|${escaped_date}|g" \
+    -e "s|{{ID}}|${escaped_id}|g" \
     "$PROMPT_FILE" > "$resolved_prompt"
 
   # Launch worker
@@ -412,6 +424,7 @@ process_offer() {
 
   # Cleanup resolved prompt
   rm -f "$resolved_prompt"
+  rm -f "$jd_file"
 
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)

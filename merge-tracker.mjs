@@ -79,6 +79,13 @@ function parseScore(s) {
   return m ? parseFloat(m[1]) : 0;
 }
 
+function sanitizeMarkdownCell(value) {
+  return String(value ?? '')
+    .replace(/\r?\n/g, ' ')
+    .replace(/\|/g, '&#124;')
+    .trim();
+}
+
 function parseAppLine(line) {
   const parts = line.split('|').map(s => s.trim());
   if (parts.length < 9) return null;
@@ -265,7 +272,7 @@ for (const file of tsvFiles) {
       console.log(`🔄 Update: #${duplicate.num} ${addition.company} — ${addition.role} (${oldScore}→${newScore})`);
       const lineIdx = appLines.indexOf(duplicate.raw);
       if (lineIdx >= 0) {
-        const updatedLine = `| ${duplicate.num} | ${addition.date} | ${addition.company} | ${addition.role} | ${addition.score} | ${duplicate.status} | ${duplicate.pdf} | ${addition.report} | Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes} |`;
+        const updatedLine = `| ${duplicate.num} | ${sanitizeMarkdownCell(addition.date)} | ${sanitizeMarkdownCell(addition.company)} | ${sanitizeMarkdownCell(addition.role)} | ${sanitizeMarkdownCell(addition.score)} | ${sanitizeMarkdownCell(duplicate.status)} | ${sanitizeMarkdownCell(duplicate.pdf)} | ${sanitizeMarkdownCell(addition.report)} | ${sanitizeMarkdownCell(`Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`)} |`;
         appLines[lineIdx] = updatedLine;
         updated++;
       }
@@ -278,7 +285,7 @@ for (const file of tsvFiles) {
     const entryNum = addition.num > maxNum ? addition.num : ++maxNum;
     if (addition.num > maxNum) maxNum = addition.num;
 
-    const newLine = `| ${entryNum} | ${addition.date} | ${addition.company} | ${addition.role} | ${addition.score} | ${addition.status} | ${addition.pdf} | ${addition.report} | ${addition.notes} |`;
+    const newLine = `| ${entryNum} | ${sanitizeMarkdownCell(addition.date)} | ${sanitizeMarkdownCell(addition.company)} | ${sanitizeMarkdownCell(addition.role)} | ${sanitizeMarkdownCell(addition.score)} | ${sanitizeMarkdownCell(addition.status)} | ${sanitizeMarkdownCell(addition.pdf)} | ${sanitizeMarkdownCell(addition.report)} | ${sanitizeMarkdownCell(addition.notes)} |`;
     newLines.push(newLine);
     added++;
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score})`);

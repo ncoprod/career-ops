@@ -16,6 +16,9 @@
 
 import { chromium } from 'playwright';
 import { readFile } from 'fs/promises';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+import { pathToFileURL } from 'node:url';
 
 const EXPIRED_PATTERNS = [
   /job (is )?no longer available/i,
@@ -53,9 +56,96 @@ const APPLY_PATTERNS = [
 // Below this length the page is probably just nav/footer (closed ATS page)
 const MIN_CONTENT_CHARS = 300;
 
+function isPrivateIpv4(hostname) {
+  const parts = hostname.split('.').map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => Number.isNaN(part) || part < 0 || part > 255)) {
+    return false;
+  }
+  const [a, b] = parts;
+  if (a === 10 || a === 127 || a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 192 && b === 168) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  return false;
+}
+
+function isPrivateIpv6(hostname) {
+  const normalized = hostname.toLowerCase();
+  if (normalized === '::' || normalized === '::1') return true;
+  if (normalized.startsWith('::ffff:')) {
+    const mappedIpv4 = normalized.slice('::ffff:'.length);
+    return isPrivateIpv4(mappedIpv4);
+  }
+  if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true; // RFC4193 unique local
+  if (/^fe[89ab]/.test(normalized)) return true; // link-local fe80::/10
+  return false;
+}
+
+function isBlockedIpAddress(hostname) {
+  const ipVersion = isIP(hostname);
+  if (ipVersion === 4) return isPrivateIpv4(hostname);
+  if (ipVersion === 6) return isPrivateIpv6(hostname);
+  return false;
+}
+
+async function resolveHostAddresses(hostname) {
+  try {
+    const records = await dnsLookup(hostname, { all: true, verbatim: true });
+    return records.map((record) => record.address);
+  } catch {
+    return [];
+  }
+}
+
+export async function validatePublicHttpUrl(rawUrl, resolveHost = resolveHostAddresses) {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: 'invalid URL format' };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, reason: `blocked URL protocol: ${parsed.protocol}` };
+  }
+
+  const host = parsed.hostname.toLowerCase();
+  if (
+    host === 'localhost' ||
+    host === '0.0.0.0' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    isBlockedIpAddress(host) ||
+    host.includes(':')
+  ) {
+    return { ok: false, reason: `blocked non-public host: ${host}` };
+  }
+
+  // Resolve DNS before navigation to prevent aliases like 127.0.0.1.nip.io
+  // from bypassing host-based checks.
+  const resolvedAddresses = await resolveHost(host);
+  if (resolvedAddresses.length === 0) {
+    return { ok: false, reason: `blocked unresolved host: ${host}` };
+  }
+  for (const address of resolvedAddresses) {
+    if (isBlockedIpAddress(address)) {
+      return { ok: false, reason: `blocked resolved non-public ip: ${address}` };
+    }
+  }
+
+  return { ok: true, url: parsed.toString() };
+}
+
 async function checkUrl(page, url) {
   try {
-    const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    const validation = await validatePublicHttpUrl(url);
+    if (!validation.ok) {
+      return { result: 'expired', reason: validation.reason };
+    }
+
+    const response = await page.goto(validation.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
     const status = response?.status() ?? 0;
     if (status === 404 || status === 410) {
@@ -140,7 +230,9 @@ async function main() {
   if (expired > 0 || uncertain > 0) process.exit(1);
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(err => {
+    console.error('Fatal:', err.message);
+    process.exit(1);
+  });
+}
