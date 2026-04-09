@@ -200,6 +200,7 @@ const scripts = [
   { name: 'normalize-statuses.mjs' },
   { name: 'dedup-tracker.mjs' },
   { name: 'merge-tracker.mjs' },
+  { name: 'phase2-contract-tests.mjs' },
   { name: 'update-system.mjs check' },
 ];
 

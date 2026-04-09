@@ -1,0 +1,298 @@
+{
+  "$id": "https://career-ops.local/schemas/canonical-model-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Career-Ops Canonical Data Model v1",
+  "type": "object",
+  "required": ["entities"],
+  "properties": {
+    "entities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/Entity" }
+    }
+  },
+  "$defs": {
+    "Entity": {
+      "oneOf": [
+        { "$ref": "#/$defs/UserProfile" },
+        { "$ref": "#/$defs/Experience" },
+        { "$ref": "#/$defs/Project" },
+        { "$ref": "#/$defs/Achievement" },
+        { "$ref": "#/$defs/Skill" },
+        { "$ref": "#/$defs/Preference" },
+        { "$ref": "#/$defs/RoleTarget" },
+        { "$ref": "#/$defs/Offer" },
+        { "$ref": "#/$defs/OfferAnalysis" },
+        { "$ref": "#/$defs/CVVariant" },
+        { "$ref": "#/$defs/Suggestion" },
+        { "$ref": "#/$defs/SuggestionDecision" },
+        { "$ref": "#/$defs/PipelineEvent" }
+      ]
+    },
+    "UtcDateTime": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "BaseRecord": {
+      "type": "object",
+      "required": [
+        "entityType",
+        "id",
+        "version",
+        "createdAt",
+        "updatedAt",
+        "provenance",
+        "review"
+      ],
+      "properties": {
+        "entityType": { "type": "string" },
+        "id": { "type": "string", "minLength": 1 },
+        "version": { "type": "integer", "minimum": 1 },
+        "createdAt": { "$ref": "#/$defs/UtcDateTime" },
+        "updatedAt": { "$ref": "#/$defs/UtcDateTime" },
+        "provenance": {
+          "type": "object",
+          "required": ["sourceType", "sourceRef", "actor"],
+          "properties": {
+            "sourceType": { "type": "string", "enum": ["user", "ai", "import", "system"] },
+            "sourceRef": { "type": "string" },
+            "actor": { "type": "string" }
+          }
+        },
+        "review": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pending", "approved", "rejected", "n/a"] },
+            "reviewedAt": { "$ref": "#/$defs/UtcDateTime" },
+            "reviewer": { "type": "string", "minLength": 1 }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "status": { "enum": ["approved", "rejected"] } } },
+              "then": { "required": ["reviewedAt", "reviewer"] }
+            }
+          ]
+        }
+      }
+    },
+    "UserProfile": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "displayName", "headline", "summary", "location", "email"],
+          "properties": {
+            "entityType": { "const": "UserProfile" },
+            "displayName": { "type": "string" },
+            "headline": { "type": "string" },
+            "summary": { "type": "string" },
+            "location": { "type": "string" },
+            "email": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Experience": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "profileId", "company", "role", "startDate", "highlights"],
+          "properties": {
+            "entityType": { "const": "Experience" },
+            "profileId": { "type": "string" },
+            "company": { "type": "string" },
+            "role": { "type": "string" },
+            "startDate": { "type": "string" },
+            "endDate": { "type": "string" },
+            "highlights": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "Project": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "profileId", "name", "description", "impactSummary"],
+          "properties": {
+            "entityType": { "const": "Project" },
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "impactSummary": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Achievement": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "profileId", "title", "metric", "context"],
+          "properties": {
+            "entityType": { "const": "Achievement" },
+            "profileId": { "type": "string" },
+            "title": { "type": "string" },
+            "metric": { "type": "string" },
+            "context": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Skill": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "profileId", "name", "category", "level"],
+          "properties": {
+            "entityType": { "const": "Skill" },
+            "profileId": { "type": "string" },
+            "name": { "type": "string" },
+            "category": { "type": "string" },
+            "level": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "Preference": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "profileId", "workMode", "targetRegions", "salaryMin", "salaryMax"],
+          "properties": {
+            "entityType": { "const": "Preference" },
+            "profileId": { "type": "string" },
+            "workMode": { "type": "string" },
+            "targetRegions": { "type": "array", "items": { "type": "string" } },
+            "salaryMin": { "type": "number" },
+            "salaryMax": { "type": "number" }
+          }
+        }
+      ]
+    },
+    "RoleTarget": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "profileId", "title", "priority", "keywords"],
+          "properties": {
+            "entityType": { "const": "RoleTarget" },
+            "profileId": { "type": "string" },
+            "title": { "type": "string" },
+            "priority": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "keywords": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "Offer": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "source", "sourceUrl", "company", "role", "rawText", "capturedAt"],
+          "properties": {
+            "entityType": { "const": "Offer" },
+            "source": { "type": "string" },
+            "sourceUrl": { "type": "string" },
+            "company": { "type": "string" },
+            "role": { "type": "string" },
+            "rawText": { "type": "string" },
+            "capturedAt": { "$ref": "#/$defs/UtcDateTime" }
+          }
+        }
+      ]
+    },
+    "OfferAnalysis": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "offerId", "overallScore", "dimensionScores", "recommendation", "rationale"],
+          "properties": {
+            "entityType": { "const": "OfferAnalysis" },
+            "offerId": { "type": "string" },
+            "overallScore": { "type": "number", "minimum": 1, "maximum": 5 },
+            "dimensionScores": { "type": "object" },
+            "recommendation": { "type": "string" },
+            "rationale": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "CVVariant": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "offerId", "profileId", "contentMarkdown", "exportPaths"],
+          "properties": {
+            "entityType": { "const": "CVVariant" },
+            "offerId": { "type": "string" },
+            "profileId": { "type": "string" },
+            "contentMarkdown": { "type": "string" },
+            "exportPaths": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      ]
+    },
+    "Suggestion": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "targetEntityId", "targetField", "currentValue", "proposedValue", "confidence"],
+          "properties": {
+            "entityType": { "const": "Suggestion" },
+            "targetEntityId": { "type": "string" },
+            "targetField": { "type": "string" },
+            "currentValue": { "type": "string" },
+            "proposedValue": { "type": "string" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      ]
+    },
+    "SuggestionDecision": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "suggestionId", "decision", "decidedBy", "decidedAt"],
+          "properties": {
+            "entityType": { "const": "SuggestionDecision" },
+            "suggestionId": { "type": "string" },
+            "decision": { "type": "string", "enum": ["approved", "rejected"] },
+            "decidedBy": { "type": "string" },
+            "decidedAt": { "$ref": "#/$defs/UtcDateTime" },
+            "reason": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "PipelineEvent": {
+      "allOf": [
+        { "$ref": "#/$defs/BaseRecord" },
+        {
+          "type": "object",
+          "required": ["entityType", "eventType", "entityRef", "payload", "occurredAt"],
+          "properties": {
+            "entityType": { "const": "PipelineEvent" },
+            "eventType": { "type": "string" },
+            "entityRef": { "type": "string" },
+            "payload": { "type": "object" },
+            "occurredAt": { "$ref": "#/$defs/UtcDateTime" }
+          }
+        }
+      ]
+    }
+  }
+}
