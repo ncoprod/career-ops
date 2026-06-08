@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# career-ops batch runner — standalone orchestrator for agent workers
-# Reads batch-input.tsv, delegates each offer to an agent worker,
+# career-ops batch runner — standalone orchestrator for claude -p workers
+# Reads batch-input.tsv, delegates each offer to a claude -p worker,
 # tracks state in batch-state.tsv for resumability.
+#
+# NOTE: This script is Claude Code-specific. It uses claude -p with
+# --append-system-prompt-file and can optionally add
+# --dangerously-skip-permissions when CAREER_OPS_UNSAFE_AGENT_EXEC=1.
+# that are not available in other CLIs. Multi-CLI support is out of scope
+# for now — contributions welcome.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -17,6 +23,8 @@ REPORTS_DIR="$PROJECT_DIR/reports"
 APPLICATIONS_FILE="$PROJECT_DIR/data/applications.md"
 LOCK_FILE="$BATCH_DIR/batch-runner.pid"
 STATE_LOCK_DIR="$BATCH_DIR/.batch-state.lock"
+STATE_LOCK_PID_FILE="$STATE_LOCK_DIR/pid"
+STATE_LOCK_TIMEOUT_SECONDS=30
 MAIN_PID="${BASHPID:-$$}"
 
 # Defaults
@@ -25,26 +33,14 @@ DRY_RUN=false
 RETRY_FAILED=false
 START_FROM=0
 MAX_RETRIES=2
-AGENT="${CAREER_OPS_AGENT:-claude}"
-AGENT_ADAPTER="${CAREER_OPS_AGENT_ADAPTER:-}"
-UNSAFE_AGENT_EXEC="${CAREER_OPS_UNSAFE_AGENT_EXEC:-0}"
+MIN_SCORE=0
+MODEL=""  # empty = let claude -p use the Claude Max default
+UNSAFE_AGENT_EXEC="${CAREER_OPS_UNSAFE_AGENT_EXEC:-false}"
 
 usage() {
   cat <<'USAGE'
-career-ops batch runner — process job offers in batch via agent workers
-
-Built-in verified provider:
-  - claude
-  - codex
-
-All other providers must be wired through an adapter script. This avoids
-guessing unsupported CLI flags for non-built-in runtimes such as Gemini CLI
-or custom adapters.
-
-Safe by default:
-  - built-in providers omit dangerous bypass flags by default
-  - to opt into provider-specific dangerous bypass flags, set CAREER_OPS_UNSAFE_AGENT_EXEC=1
-  - use unsafe mode only in a trusted local environment
+career-ops batch runner — process job offers in batch via claude -p workers
+Uses your default Claude model (Claude Max subscription).
 
 Usage: batch-runner.sh [OPTIONS]
 
@@ -54,7 +50,10 @@ Options:
   --retry-failed       Only retry offers marked as "failed" in state
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
-  --agent NAME         Worker provider (default: env CAREER_OPS_AGENT or "claude")
+  --min-score N        Skip PDF/tracker for offers scoring below N (default: 0 = off)
+  --model NAME         Claude model passed to `claude -p --model` (default:
+                       unset = Claude Max default). Use a cheaper model for
+                       large batches, e.g. `--model claude-sonnet-4-6`.
   -h, --help           Show this help
 
 Files:
@@ -76,15 +75,6 @@ Examples:
 
   # Process 2 at a time starting from ID 10
   ./batch-runner.sh --parallel 2 --start-from 10
-
-  # Use the verified Codex CLI path
-  CAREER_OPS_AGENT=codex ./batch-runner.sh
-
-  # Opt into unsafe local execution explicitly
-  CAREER_OPS_AGENT=codex CAREER_OPS_UNSAFE_AGENT_EXEC=1 ./batch-runner.sh
-
-  # Use a custom adapter for another runtime
-  CAREER_OPS_AGENT=gemini CAREER_OPS_AGENT_ADAPTER=./batch/my-gemini-adapter.sh ./batch-runner.sh
 USAGE
 }
 
@@ -96,7 +86,8 @@ while [[ $# -gt 0 ]]; do
     --retry-failed) RETRY_FAILED=true; shift ;;
     --start-from) START_FROM="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
-    --agent) AGENT="$2"; shift 2 ;;
+    --min-score) MIN_SCORE="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -140,84 +131,12 @@ check_prerequisites() {
     exit 1
   fi
 
-  case "$AGENT" in
-    claude)
-      if ! command -v claude &>/dev/null; then
-        echo "ERROR: 'claude' CLI not found in PATH."
-        exit 1
-      fi
-      ;;
-    codex)
-      if ! command -v codex &>/dev/null; then
-        echo "ERROR: 'codex' CLI not found in PATH."
-        exit 1
-      fi
-      ;;
-    *)
-      if [[ -z "$AGENT_ADAPTER" ]]; then
-        echo "ERROR: CAREER_OPS_AGENT_ADAPTER is required for agent '$AGENT'."
-        echo "Use batch/agent-adapter.example.sh as a starting point."
-        exit 1
-      fi
-      if [[ ! -x "$AGENT_ADAPTER" ]]; then
-        echo "ERROR: Adapter is not executable: $AGENT_ADAPTER"
-        exit 1
-      fi
-      ;;
-  esac
-
-  if ! command -v grep &>/dev/null; then
-    echo "ERROR: 'grep' is required in PATH for log parsing."
+  if ! command -v claude &>/dev/null; then
+    echo "ERROR: 'claude' CLI not found in PATH."
     exit 1
   fi
 
   mkdir -p "$LOGS_DIR" "$TRACKER_DIR" "$REPORTS_DIR"
-}
-
-unsafe_exec_enabled() {
-  [[ "$UNSAFE_AGENT_EXEC" == "1" ]]
-}
-
-escape_sed_replacement() {
-  # Escape sed replacement metacharacters to prevent prompt template injection.
-  printf '%s' "$1" | sed -e 's/[&|\\]/\\&/g'
-}
-
-invoke_worker() {
-  local resolved_prompt="$1"
-  local prompt="$2"
-
-  if [[ "$AGENT" == "claude" ]]; then
-    local -a claude_args=(
-      -p
-      --append-system-prompt-file "$resolved_prompt"
-    )
-    if unsafe_exec_enabled; then
-      claude_args+=(--dangerously-skip-permissions)
-    fi
-    claude "${claude_args[@]}" "$prompt"
-    return
-  fi
-
-  if [[ "$AGENT" == "codex" ]]; then
-    local -a codex_args=(
-      exec
-      --color never
-      -C "$PROJECT_DIR"
-      -
-    )
-    if unsafe_exec_enabled; then
-      codex_args+=(--dangerously-bypass-approvals-and-sandbox)
-    fi
-    {
-      cat "$resolved_prompt"
-      printf '\n\n'
-      printf '%s\n' "$prompt"
-    } | codex "${codex_args[@]}"
-    return
-  fi
-
-  "$AGENT_ADAPTER" "$resolved_prompt" "$prompt"
 }
 
 # Initialize state file if it doesn't exist
@@ -228,13 +147,65 @@ init_state() {
 }
 
 acquire_state_lock() {
-  while ! mkdir "$STATE_LOCK_DIR" 2>/dev/null; do
+  local waited=0
+  local max_waits=$((STATE_LOCK_TIMEOUT_SECONDS * 10))
+
+  while true; do
+    if mkdir "$STATE_LOCK_DIR" 2>/dev/null; then
+      if printf '%s\n' "${BASHPID:-$$}" > "$STATE_LOCK_PID_FILE"; then
+        return 0
+      fi
+      rm -f "$STATE_LOCK_PID_FILE" 2>/dev/null || true
+      rmdir "$STATE_LOCK_DIR" 2>/dev/null || true
+      echo "ERROR: Failed to initialize state lock metadata at $STATE_LOCK_DIR"
+      return 1
+    fi
+
+    if [[ ! -d "$STATE_LOCK_DIR" ]]; then
+      echo "ERROR: Failed to create state lock directory $STATE_LOCK_DIR"
+      return 1
+    fi
+
+    if [[ -f "$STATE_LOCK_PID_FILE" ]]; then
+      local lock_pid
+      lock_pid=$(cat "$STATE_LOCK_PID_FILE" 2>/dev/null || true)
+      if [[ -n "$lock_pid" ]] && ! kill -0 "$lock_pid" 2>/dev/null; then
+        rm -f "$STATE_LOCK_PID_FILE"
+        if rmdir "$STATE_LOCK_DIR" 2>/dev/null; then
+          echo "WARN: Recovered stale state lock (PID $lock_pid not running)."
+          continue
+        fi
+      fi
+    fi
+
+    if (( waited >= max_waits )); then
+      echo "ERROR: Timed out waiting for state lock at $STATE_LOCK_DIR"
+      echo "If no batch-runner worker is active, remove the stale lock directory."
+      return 1
+    fi
+
     sleep 0.1
+    ((waited += 1))
   done
 }
 
 release_state_lock() {
+  rm -f "$STATE_LOCK_PID_FILE" 2>/dev/null || true
   rmdir "$STATE_LOCK_DIR" 2>/dev/null || true
+}
+
+run_with_state_lock() {
+  acquire_state_lock || return $?
+
+  local status=0
+  if "$@"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  release_state_lock
+  return "$status"
 }
 
 # Get status of an offer from state file
@@ -327,44 +298,22 @@ update_state_unlocked() {
 }
 
 update_state() {
-  acquire_state_lock
-
-  local status=0
-  if update_state_unlocked "$@"; then
-    status=0
-  else
-    status=$?
-  fi
-
-  release_state_lock
-  return "$status"
+  run_with_state_lock update_state_unlocked "$@"
 }
 
-reserve_report_num() {
+reserve_report_num_unlocked() {
   local id="$1" url="$2" started="$3" retries="$4"
 
-  acquire_state_lock
-
   local report_num=""
-  local status=0
-
   if report_num=$(next_report_num_unlocked); then
-    if update_state_unlocked "$id" "$url" "processing" "$started" "-" "$report_num" "-" "-" "$retries"; then
-      status=0
-    else
-      status=$?
-    fi
-  else
-    status=$?
-  fi
-
-  release_state_lock
-
-  if (( status != 0 )); then
-    return "$status"
+    update_state_unlocked "$id" "$url" "processing" "$started" "-" "$report_num" "-" "-" "$retries"
   fi
 
   printf '%s\n' "$report_num"
+}
+
+reserve_report_num() {
+  run_with_state_lock reserve_report_num_unlocked "$@"
 }
 
 # Process a single offer
@@ -379,8 +328,7 @@ process_offer() {
   report_num=$(reserve_report_num "$id" "$url" "$started_at" "$retries")
   local date
   date=$(date +%Y-%m-%d)
-  local jd_file
-  jd_file=$(mktemp "$BATCH_DIR/.batch-jd-${id}-XXXXXX.txt")
+  local jd_file="/tmp/batch-jd-${id}.txt"
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
@@ -397,34 +345,40 @@ process_offer() {
 
   # Prepare system prompt with placeholders resolved
   local resolved_prompt="$BATCH_DIR/.resolved-prompt-${id}.md"
-  local escaped_url escaped_jd_file escaped_report_num escaped_date escaped_id
-  escaped_url=$(escape_sed_replacement "$url")
-  escaped_jd_file=$(escape_sed_replacement "$jd_file")
-  escaped_report_num=$(escape_sed_replacement "$report_num")
-  escaped_date=$(escape_sed_replacement "$date")
-  escaped_id=$(escape_sed_replacement "$id")
+  # Escape sed delimiter characters in variables to prevent substitution breakage
+  local esc_url esc_jd_file esc_report_num esc_date esc_id
+  esc_url="${url//\\/\\\\}"
+  esc_url="${esc_url//|/\\|}"
+  esc_jd_file="${jd_file//\\/\\\\}"
+  esc_jd_file="${esc_jd_file//|/\\|}"
+  esc_report_num="${report_num//|/\\|}"
+  esc_date="${date//|/\\|}"
+  esc_id="${id//|/\\|}"
   sed \
-    -e "s|{{URL}}|${escaped_url}|g" \
-    -e "s|{{JD_FILE}}|${escaped_jd_file}|g" \
-    -e "s|{{REPORT_NUM}}|${escaped_report_num}|g" \
-    -e "s|{{DATE}}|${escaped_date}|g" \
-    -e "s|{{ID}}|${escaped_id}|g" \
+    -e "s|{{URL}}|${esc_url}|g" \
+    -e "s|{{JD_FILE}}|${esc_jd_file}|g" \
+    -e "s|{{REPORT_NUM}}|${esc_report_num}|g" \
+    -e "s|{{DATE}}|${esc_date}|g" \
+    -e "s|{{ID}}|${esc_id}|g" \
     "$PROMPT_FILE" > "$resolved_prompt"
 
-  # Launch worker
+  # Launch claude -p worker.
+  # Model defaults to the Claude Max subscription default unless --model was
+  # passed. Building the command in an array keeps quoting safe regardless.
+  local -a claude_args=(-p)
+  if [[ "$UNSAFE_AGENT_EXEC" == "1" || "$UNSAFE_AGENT_EXEC" == "true" ]]; then
+    claude_args+=(--dangerously-skip-permissions)
+  fi
+  if [[ -n "$MODEL" ]]; then
+    claude_args+=(--model "$MODEL")
+  fi
+  claude_args+=(--append-system-prompt-file "$resolved_prompt" "$prompt")
+
   local exit_code=0
-  CAREER_OPS_PROJECT_DIR="$PROJECT_DIR" \
-    CAREER_OPS_BATCH_DIR="$BATCH_DIR" \
-    CAREER_OPS_AGENT="$AGENT" \
-    CAREER_OPS_BATCH_ID="$id" \
-    CAREER_OPS_REPORT_NUM="$report_num" \
-    CAREER_OPS_TARGET_URL="$url" \
-    invoke_worker "$resolved_prompt" "$prompt" \
-    > "$log_file" 2>&1 || exit_code=$?
+  claude "${claude_args[@]}" > "$log_file" 2>&1 || exit_code=$?
 
   # Cleanup resolved prompt
   rm -f "$resolved_prompt"
-  rm -f "$jd_file"
 
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -433,9 +387,18 @@ process_offer() {
     # Try to extract score from worker output
     local score="-"
     local score_match
-    score_match=$(grep -oP '"score":\s*[\d.]+' "$log_file" 2>/dev/null | head -1 | grep -oP '[\d.]+' || true)
+   score_match=$(sed -nE 's/.*"score":[[:space:]]*([0-9.]+).*/\1/p' "$log_file" 2>/dev/null | head -1 || true)
     if [[ -n "$score_match" ]]; then
       score="$score_match"
+    fi
+
+    # Check min-score gate
+    if [[ "$score" != "-" && -n "$score" ]] && (( $(echo "$MIN_SCORE > 0" | bc -l) )); then
+      if (( $(echo "$score < $MIN_SCORE" | bc -l) )); then
+        update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "$score" "below-min-score" "$retries"
+        echo "    ⏭️  Skipped (score: $score < min-score: $MIN_SCORE)"
+        continue
+      fi
     fi
 
     update_state "$id" "$url" "completed" "$started_at" "$completed_at" "$report_num" "$score" "-" "$retries"
@@ -478,7 +441,7 @@ print_summary() {
     case "$sstatus" in
       completed) completed=$((completed + 1))
         if [[ "$sscore" != "-" && -n "$sscore" ]]; then
-          score_sum=$(awk -v a="$score_sum" -v b="$sscore" 'BEGIN { printf "%.10f", a + b }' 2>/dev/null || echo "$score_sum")
+          score_sum=$(echo "$score_sum + $sscore" | bc 2>/dev/null || echo "$score_sum")
           score_count=$((score_count + 1))
         fi
         ;;
@@ -491,7 +454,7 @@ print_summary() {
 
   if (( score_count > 0 )); then
     local avg
-    avg=$(awk -v sum="$score_sum" -v count="$score_count" 'BEGIN { printf "%.1f", sum / count }' 2>/dev/null || echo "N/A")
+    avg=$(echo "scale=1; $score_sum / $score_count" | bc 2>/dev/null || echo "N/A")
     echo "Average score: $avg/5 ($score_count scored)"
   fi
 }
@@ -517,12 +480,7 @@ main() {
   fi
 
   echo "=== career-ops batch runner ==="
-  echo "Agent: $AGENT | Parallel: $PARALLEL | Max retries: $MAX_RETRIES"
-  if unsafe_exec_enabled; then
-    echo "Execution mode: UNSAFE (approval/sandbox bypass enabled by explicit opt-in)"
-  else
-    echo "Execution mode: safe default"
-  fi
+  echo "Parallel: $PARALLEL | Max retries: $MAX_RETRIES"
   echo "Input: $total_input offers"
   echo ""
 
@@ -535,6 +493,9 @@ main() {
   while IFS=$'\t' read -r id url source notes; do
     [[ "$id" == "id" ]] && continue  # skip header
     [[ -z "$id" || -z "$url" ]] && continue
+
+    # Guard against non-numeric id values
+    [[ "$id" =~ ^[0-9]+$ ]] || continue
 
     # Skip if before start-from
     if (( id < START_FROM )); then

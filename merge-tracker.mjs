@@ -17,19 +17,37 @@
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync } from 'fs';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { execFileSync } from 'child_process';
+import { normalizeReportLink as normalizeLink } from './tracker-links.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
-// Support both layouts: data/applications.md (boilerplate) and applications.md (original)
-const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
-  ? join(CAREER_OPS, 'data/applications.md')
-  : join(CAREER_OPS, 'applications.md');
+// Support both layouts: data/applications.md (boilerplate) and applications.md (original).
+// CAREER_OPS_TRACKER overrides the path (used by tests and non-standard layouts).
+const APPS_FILE = process.env.CAREER_OPS_TRACKER
+  ? process.env.CAREER_OPS_TRACKER
+  : existsSync(join(CAREER_OPS, 'data/applications.md'))
+    ? join(CAREER_OPS, 'data/applications.md')
+    : join(CAREER_OPS, 'applications.md');
+const TRACKER_DIR = dirname(APPS_FILE);
 const ADDITIONS_DIR = join(CAREER_OPS, 'batch/tracker-additions');
 const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
+const MIGRATE = process.argv.includes('--migrate');
+
+// The reports/ dir sits at the repo root, which is the tracker's parent in the
+// data/ layout (data/applications.md) and the tracker's own dir at root layout.
+const REPORTS_ROOT = basename(TRACKER_DIR) === 'data' ? dirname(TRACKER_DIR) : TRACKER_DIR;
+
+// Normalize a report link relative to the tracker file's own directory (#760).
+const normalizeReportLink = (reportField) => normalizeLink(reportField, TRACKER_DIR, REPORTS_ROOT);
+
+// Ensure required directories exist (fresh setup)
+mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
+mkdirSync(ADDITIONS_DIR, { recursive: true });
 
 // Canonical states and aliases
-const CANONICAL_STATES = ['Evaluada', 'Aplicado', 'Respondido', 'Entrevista', 'Oferta', 'Rechazado', 'Descartado', 'NO APLICAR'];
+const CANONICAL_STATES = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Rejected', 'Discarded', 'SKIP'];
 
 function validateStatus(status) {
   const clean = status.replace(/\*\*/g, '').replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
@@ -41,32 +59,108 @@ function validateStatus(status) {
 
   // Aliases
   const aliases = {
-    'enviada': 'Aplicado', 'aplicada': 'Aplicado', 'applied': 'Aplicado', 'sent': 'Aplicado',
-    'cerrada': 'Descartado', 'descartada': 'Descartado', 'cancelada': 'Descartado',
-    'rechazada': 'Rechazado',
-    'no aplicar': 'NO APLICAR', 'no_aplicar': 'NO APLICAR', 'skip': 'NO APLICAR', 'monitor': 'NO APLICAR',
-    'condicional': 'Evaluada', 'hold': 'Evaluada', 'evaluar': 'Evaluada', 'verificar': 'Evaluada',
-    'geo blocker': 'NO APLICAR',
+    // Spanish → English
+    'evaluada': 'Evaluated', 'condicional': 'Evaluated', 'hold': 'Evaluated', 'evaluar': 'Evaluated', 'verificar': 'Evaluated',
+    'aplicado': 'Applied', 'enviada': 'Applied', 'aplicada': 'Applied', 'applied': 'Applied', 'sent': 'Applied',
+    'respondido': 'Responded',
+    'entrevista': 'Interview',
+    'oferta': 'Offer',
+    'rechazado': 'Rejected', 'rechazada': 'Rejected',
+    'descartado': 'Discarded', 'descartada': 'Discarded', 'cerrada': 'Discarded', 'cancelada': 'Discarded',
+    'no aplicar': 'SKIP', 'no_aplicar': 'SKIP', 'skip': 'SKIP', 'monitor': 'SKIP',
+    'geo blocker': 'SKIP',
   };
 
   if (aliases[lower]) return aliases[lower];
 
-  // DUPLICADO/Repost → Descartado
-  if (/^(duplicado|dup|repost)/i.test(lower)) return 'Descartado';
+  // DUPLICADO/Repost → Discarded
+  if (/^(duplicado|dup|repost)/i.test(lower)) return 'Discarded';
 
-  console.warn(`⚠️  Non-canonical status "${status}" → defaulting to "Evaluada"`);
-  return 'Evaluada';
+  console.warn(`⚠️  Non-canonical status "${status}" → defaulting to "Evaluated"`);
+  return 'Evaluated';
 }
 
 function normalizeCompany(name) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+// Tokens that almost every role shares — must NOT count as signal.
+// Includes seniority, work-mode, contract, and common locations.
+const ROLE_STOPWORDS = new Set([
+  // seniority / level
+  'junior', 'mid', 'middle', 'senior', 'staff', 'principal', 'lead', 'head',
+  'chief', 'associate', 'intern', 'entry', 'level',
+  // contract / mode
+  'remote', 'hybrid', 'onsite', 'contract', 'contractor', 'freelance',
+  'fulltime', 'parttime', 'permanent', 'temporary', 'intern', 'internship',
+  // generic job words
+  'role', 'position', 'opportunity', 'team', 'based',
+  // very common locations (extend in portals.yml later if needed)
+  'bangalore', 'bengaluru', 'mumbai', 'delhi', 'hyderabad', 'pune', 'chennai',
+  'london', 'berlin', 'paris', 'madrid', 'barcelona', 'amsterdam', 'dublin',
+  'york', 'francisco', 'seattle', 'boston', 'austin', 'chicago', 'toronto',
+  'tokyo', 'singapore', 'sydney', 'melbourne', 'lisbon', 'warsaw',
+  // regions / countries
+  'europe', 'emea', 'apac', 'latam', 'americas', 'india', 'spain', 'germany',
+  'france', 'italy', 'canada', 'brazil', 'mexico', 'japan',
+  // prepositions leaking through length filter
+  'with', 'from', 'into', 'over', 'this', 'that',
+]);
+
+// Short specialty acronyms that ARE discriminating despite their length.
+// Without this allowlist, `length > 3` strips them out, leaving only the
+// generic "Software Engineer" baseline (see Issue #633).
+//
+// Deliberately narrow: includes tokens like 'api' / 'sre' / 'sdk' that name
+// a specific team or technology, and excludes broad ones like 'ai' / 'ml' /
+// 'llm' that appear across many roles (AI Engineer, ML Manager, etc.).
+// Adding the broad ones would regress #329's AI Success/Deployment case.
+const SHORT_SPECIALTY = new Set([
+  'api', 'sre', 'sdk', 'cli', 'gpu', 'cpu',
+  'ios', 'qa', 'ux', 'ui', 'ar', 'vr',
+  'ocr', 'crm', 'erp',
+]);
+
+// Generic role-level descriptors. Two roles whose ONLY overlap is in this
+// set (e.g. [software, engineer]) are NOT the same role — they're just
+// labelled at the same altitude. See Issue #633: "Staff SWE, API" vs
+// "Staff SWE, Kubernetes Platform" share [software, engineer] only.
+const BASELINE_TOKENS = new Set([
+  'software', 'engineer', 'developer', 'manager', 'architect',
+  'analyst', 'designer', 'consultant', 'specialist',
+  'platform', 'systems', 'services',
+  'backend', 'frontend', 'fullstack',
+]);
+
+function roleTokens(s) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(w => (w.length > 3 || SHORT_SPECIALTY.has(w)) && !ROLE_STOPWORDS.has(w));
+}
+
 function roleFuzzyMatch(a, b) {
-  const wordsA = a.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const wordsB = b.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const overlap = wordsA.filter(w => wordsB.some(wb => wb.includes(w) || w.includes(wb)));
-  return overlap.length >= 2;
+  const wordsA = roleTokens(a);
+  const wordsB = roleTokens(b);
+  if (wordsA.length === 0 || wordsB.length === 0) return false;
+
+  const setB = new Set(wordsB);
+  const overlap = wordsA.filter(w => setB.has(w));
+  if (overlap.length < 2) return false;
+
+  // Require at least one non-baseline token in the overlap. Roles that
+  // share only generic descriptors like [software, engineer] are NOT the
+  // same role (see Issue #633).
+  const discriminating = overlap.filter(w => !BASELINE_TOKENS.has(w));
+  if (discriminating.length === 0) return false;
+
+  // Jaccard-style ratio on content tokens. Two roles are "the same" only
+  // when the overlap dominates the smaller side — not when they just share
+  // a location + "engineer".
+  const minLen = Math.min(wordsA.length, wordsB.length);
+  const ratio = overlap.length / minLen;
+  return ratio >= 0.6;
 }
 
 function extractReportNum(reportStr) {
@@ -142,8 +236,8 @@ function parseTsvContent(content, filename) {
     const col5 = parts[5].trim();
     const col4LooksLikeScore = /^\d+\.?\d*\/5$/.test(col4) || col4 === 'N/A' || col4 === 'DUP';
     const col5LooksLikeScore = /^\d+\.?\d*\/5$/.test(col5) || col5 === 'N/A' || col5 === 'DUP';
-    const col4LooksLikeStatus = /^(evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(col4);
-    const col5LooksLikeStatus = /^(evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(col5);
+    const col4LooksLikeStatus = /^(evaluated|applied|responded|interview|offer|rejected|discarded|skip|evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(col4);
+    const col5LooksLikeStatus = /^(evaluated|applied|responded|interview|offer|rejected|discarded|skip|evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(col5);
 
     let statusCol, scoreCol;
     if (col4LooksLikeStatus && !col4LooksLikeScore) {
@@ -189,6 +283,25 @@ if (!existsSync(APPS_FILE)) {
   process.exit(0);
 }
 const appContent = readFileSync(APPS_FILE, 'utf-8');
+
+// One-time migration: rewrite existing report links so they resolve relative
+// to the tracker file's directory (see #760). Run with: node merge-tracker.mjs --migrate
+if (MIGRATE) {
+  const migrated = appContent
+    .split('\n')
+    .map(line => (line.startsWith('|') ? normalizeReportLink(line) : line));
+  const before = appContent.split('\n');
+  const changed = migrated.filter((l, i) => l !== before[i]).length;
+
+  if (DRY_RUN) {
+    console.log(`🔎 Migration (dry-run): ${changed} row(s) would be rewritten in ${basename(APPS_FILE)}`);
+  } else {
+    writeFileSync(APPS_FILE, migrated.join('\n'));
+    console.log(`✅ Migration: rewrote ${changed} report link(s) in ${basename(APPS_FILE)} relative to ${TRACKER_DIR === CAREER_OPS ? 'repo root' : 'data/'}`);
+  }
+  process.exit(0);
+}
+
 const appLines = appContent.split('\n');
 const existingApps = [];
 let maxNum = 0;
@@ -235,6 +348,11 @@ for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
   const addition = parseTsvContent(content, file);
   if (!addition) { skipped++; continue; }
+
+  // Normalize the report link to be relative to the tracker file's directory.
+  // The TSV convention carries a root-relative `reports/...` link; rewrite it
+  // so it resolves correctly when clicked from applications.md (see #760).
+  addition.report = normalizeReportLink(addition.report);
 
   // Check for duplicate by:
   // 1. Exact report number match
@@ -325,9 +443,8 @@ if (DRY_RUN) console.log('(dry-run — no changes written)');
 // Optional verify
 if (VERIFY && !DRY_RUN) {
   console.log('\n--- Running verification ---');
-  const { execSync } = await import('child_process');
   try {
-    execSync(`node ${join(CAREER_OPS, 'verify-pipeline.mjs')}`, { stdio: 'inherit' });
+    execFileSync('node', [join(CAREER_OPS, 'verify-pipeline.mjs')], { stdio: 'inherit' });
   } catch (e) {
     process.exit(1);
   }

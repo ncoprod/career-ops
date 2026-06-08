@@ -3,6 +3,9 @@ cv.md
 data/applications.md
 data/pipeline.md
 data/scan-history.tsv
+data/parser-output/**/*.json
+!data/parser-output/.gitkeep
+!data/parser-output/**/.gitkeep
 reports/*.md
 !reports/.gitkeep
 output/*
@@ -11,10 +14,14 @@ batch/logs/*
 !batch/logs/.gitkeep
 batch/batch-state.tsv
 batch/batch-input.tsv
-batch/tracker-additions/*.tsv
+batch/tracker-additions/**/*.tsv
 !batch/tracker-additions/.gitkeep
 jds/*
 !jds/.gitkeep
+
+# Writing samples (user's personal files — never committed)
+writing-samples/*
+!writing-samples/README.md
 
 # User config and customization (never auto-updated)
 config/profile.yml
@@ -23,10 +30,13 @@ modes/_profile.md
 .update-dismissed
 .update-lock
 
+# Secrets (never commit — use .env.example as template)
+.env
+
 # Generated
 .resolved-prompt-*
-*.bak
 node_modules/
+bun.lock
 
 # OS
 .DS_Store
@@ -37,9 +47,4 @@ node_modules/
 .claude/settings.local.json
 .claude/memory/
 career-dashboard
-dashboard/career-dashboard
-dashboard/career-dashboard.exe
-dashboard/career-dashboard-test
-dashboard/career-dashboard-test.exe
-dashboard/career-dashboard*
-dashboard/*.exe
+package-lock.json

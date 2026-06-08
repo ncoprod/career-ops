@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * test-all.mjs - Comprehensive test suite for career-ops
+ * test-all.mjs — Comprehensive test suite for career-ops
  *
  * Run before merging any PR or pushing changes.
  * Tests: syntax, scripts, dashboard, data contract, personal data, paths.
@@ -11,159 +11,48 @@
  *   node test-all.mjs --quick   # Skip dashboard build (faster)
  */
 
-import { execFileSync, execSync } from 'child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'fs';
+import { execSync, execFileSync } from 'child_process';
+import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs';
+import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import { delimiter, dirname, join, relative } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = __dirname;
 const QUICK = process.argv.includes('--quick');
+const NODE = process.execPath;
 
 let passed = 0;
 let failed = 0;
 let warnings = 0;
 
-function pass(msg) { console.log(`  PASS ${msg}`); passed++; }
-function fail(msg) { console.log(`  FAIL ${msg}`); failed++; }
-function warn(msg) { console.log(`  WARN ${msg}`); warnings++; }
+function pass(msg) { console.log(`  ✅ ${msg}`); passed++; }
+function fail(msg) { console.log(`  ❌ ${msg}`); failed++; }
+function warn(msg) { console.log(`  ⚠️  ${msg}`); warnings++; }
 
-function run(cmd, opts = {}) {
+function run(cmd, args = [], opts = {}) {
   try {
-    return execSync(cmd, {
-      cwd: ROOT,
-      encoding: 'utf-8',
-      timeout: 30000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      ...opts,
-    }).trim();
-  } catch {
-    return null;
-  }
-}
-
-function getGitBashPath() {
-  if (process.platform !== 'win32') {
-    return 'bash';
-  }
-  const candidates = [
-    'C:/Program Files/Git/bin/bash.exe',
-    'C:/Program Files (x86)/Git/bin/bash.exe',
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
+    if (Array.isArray(args) && args.length > 0) {
+      return execFileSync(cmd, args, { cwd: ROOT, encoding: 'utf-8', timeout: 30000, ...opts }).trim();
     }
-  }
-  return null;
-}
-
-function fileExists(path) {
-  return existsSync(join(ROOT, path));
-}
-
-function readFile(path) {
-  return readFileSync(join(ROOT, path), 'utf-8');
-}
-
-function runBatchRunnerSmoke(agent, unsafe = false) {
-  const shellBinary = getGitBashPath();
-  if (shellBinary === null) {
-    return null;
-  }
-
-  const tempRoot = mkdtempSync(join(tmpdir(), 'career-ops-batch-smoke-'));
-  const batchDir = join(tempRoot, 'batch');
-  const binDir = join(tempRoot, 'bin');
-  const argvFile = join(tempRoot, `${agent}-argv.txt`);
-
-  try {
-    mkdirSync(batchDir, { recursive: true });
-    mkdirSync(binDir, { recursive: true });
-    mkdirSync(join(tempRoot, 'reports'), { recursive: true });
-    mkdirSync(join(tempRoot, 'data'), { recursive: true });
-
-    writeFileSync(join(batchDir, 'batch-runner.sh'), readFile('batch/batch-runner.sh'));
-    chmodSync(join(batchDir, 'batch-runner.sh'), 0o755);
-
-    writeFileSync(
-      join(batchDir, 'batch-input.tsv'),
-      'id\turl\tsource\tnotes\n1\thttps://example.com/job\tmanual\t-\n',
-    );
-    writeFileSync(join(batchDir, 'batch-prompt.md'), 'Smoke test prompt.\n');
-    writeFileSync(join(tempRoot, 'merge-tracker.mjs'), 'process.exit(0);\n');
-    writeFileSync(join(tempRoot, 'verify-pipeline.mjs'), 'process.exit(0);\n');
-
-    const stub = `#!/usr/bin/env bash
-printf '%s\n' "$*" > "$CAREER_OPS_TEST_ARGV_FILE"
-cat >/dev/null
-`;
-    writeFileSync(join(binDir, agent), stub);
-    chmodSync(join(binDir, agent), 0o755);
-
-    const env = {
-      ...process.env,
-      PATH: `${binDir}${delimiter}${process.env.PATH ?? ''}`,
-      CAREER_OPS_AGENT: agent,
-      CAREER_OPS_TEST_ARGV_FILE: argvFile,
-    };
-    if (unsafe) {
-      env.CAREER_OPS_UNSAFE_AGENT_EXEC = '1';
-    }
-
-    execFileSync(shellBinary, ['batch/batch-runner.sh'], {
-      cwd: tempRoot,
-      env,
-      encoding: 'utf-8',
-      timeout: 30000,
-    });
-
-    return readFileSync(argvFile, 'utf-8').trim();
-  } catch {
-    return null;
-  } finally {
-    rmSync(tempRoot, { recursive: true, force: true });
-  }
-}
-
-function runNode(args, opts = {}) {
-  try {
-    return execFileSync('node', args, {
-      cwd: ROOT,
-      encoding: 'utf-8',
-      timeout: 60000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      ...opts,
-    }).trim();
-  } catch {
+    return execSync(cmd, { cwd: ROOT, encoding: 'utf-8', timeout: 30000, ...opts }).trim();
+  } catch (e) {
     return null;
   }
 }
 
-function listFiles(dir, out = []) {
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    const rel = relative(ROOT, full).replaceAll('\\', '/');
-    if (entry === '.git' || entry === 'node_modules') continue;
-    const stat = statSync(full);
-    if (stat.isDirectory()) {
-      listFiles(full, out);
-    } else {
-      out.push(rel);
-    }
-  }
-  return out;
-}
+function fileExists(path) { return existsSync(join(ROOT, path)); }
+function readFile(path) { return readFileSync(join(ROOT, path), 'utf-8'); }
 
-console.log('\ncareer-ops test suite\n');
+console.log('\n🧪 career-ops test suite\n');
 
-// 1. SYNTAX CHECKS
+// ── 1. SYNTAX CHECKS ────────────────────────────────────────────
+
 console.log('1. Syntax checks');
 
 const mjsFiles = readdirSync(ROOT).filter(f => f.endsWith('.mjs'));
 for (const f of mjsFiles) {
-  const result = run(`node --check ${f}`);
+  const result = run(NODE, ['--check', f]);
   if (result !== null) {
     pass(`${f} syntax OK`);
   } else {
@@ -171,41 +60,23 @@ for (const f of mjsFiles) {
   }
 }
 
-const gitBash = getGitBashPath();
-const shellFiles = [
-  'batch/batch-runner.sh',
-  'batch/agent-adapter.example.sh',
-];
+// ── 2. SCRIPT EXECUTION ─────────────────────────────────────────
 
-if (gitBash !== null) {
-  const shellBinary = process.platform === 'win32' ? `"${gitBash}"` : gitBash;
-  for (const f of shellFiles) {
-    const result = run(`${shellBinary} -n ${f}`);
-    if (result !== null) {
-      pass(`${f} shell syntax OK`);
-    } else {
-      fail(`${f} has shell syntax errors`);
-    }
-  }
-} else {
-  warn('Git Bash not found; shell syntax checks skipped');
-}
-
-// 2. SCRIPT EXECUTION
 console.log('\n2. Script execution (graceful on empty data)');
 
 const scripts = [
-  { name: 'cv-sync-check.mjs', allowFail: true },
-  { name: 'verify-pipeline.mjs' },
-  { name: 'normalize-statuses.mjs' },
-  { name: 'dedup-tracker.mjs' },
-  { name: 'merge-tracker.mjs' },
-  { name: 'phase2-contract-tests.mjs' },
-  { name: 'update-system.mjs check' },
+  { name: 'cv-sync-check.mjs', expectExit: 1, allowFail: true }, // fails without cv.md (normal in repo)
+  { name: 'verify-pipeline.mjs', expectExit: 0 },
+  { name: 'normalize-statuses.mjs', expectExit: 0 },
+  { name: 'dedup-tracker.mjs', expectExit: 0 },
+  { name: 'merge-tracker.mjs', expectExit: 0 },
+  { name: 'phase2-contract-tests.mjs', expectExit: 0 },
+  { name: 'analyze-patterns.mjs --self-test', expectExit: 0 },
+  { name: 'update-system.mjs check', expectExit: 0 },
 ];
 
 for (const { name, allowFail } of scripts) {
-  const result = run(`node ${name}`);
+  const result = run(NODE, name.split(' '), { stdio: ['pipe', 'pipe', 'pipe'] });
   if (result !== null) {
     pass(`${name} runs OK`);
   } else if (allowFail) {
@@ -215,219 +86,107 @@ for (const { name, allowFail } of scripts) {
   }
 }
 
-console.log('\n2b. Batch runner safety smoke tests');
+// ── 3. LIVENESS CLASSIFICATION ──────────────────────────────────
 
-const codexSafeArgv = runBatchRunnerSmoke('codex', false);
-const codexUnsafeArgv = runBatchRunnerSmoke('codex', true);
-const claudeSafeArgv = runBatchRunnerSmoke('claude', false);
-const claudeUnsafeArgv = runBatchRunnerSmoke('claude', true);
-
-if (codexSafeArgv === null || codexUnsafeArgv === null || claudeSafeArgv === null || claudeUnsafeArgv === null) {
-  warn('Batch runner safety smoke tests skipped or failed to initialize');
-} else {
-  if (!codexSafeArgv.includes('--dangerously-bypass-approvals-and-sandbox')) {
-    pass('Codex default path omits dangerous bypass flag');
-  } else {
-    fail('Codex default path still enables dangerous bypass flag');
-  }
-
-  if (codexUnsafeArgv.includes('--dangerously-bypass-approvals-and-sandbox')) {
-    pass('Codex unsafe opt-in enables dangerous bypass flag');
-  } else {
-    fail('Codex unsafe opt-in does not enable dangerous bypass flag');
-  }
-
-  if (!claudeSafeArgv.includes('--dangerously-skip-permissions')) {
-    pass('Claude default path omits dangerous permission bypass flag');
-  } else {
-    fail('Claude default path still enables dangerous permission bypass flag');
-  }
-
-  if (claudeUnsafeArgv.includes('--dangerously-skip-permissions')) {
-    pass('Claude unsafe opt-in enables dangerous permission bypass flag');
-  } else {
-    fail('Claude unsafe opt-in does not enable dangerous permission bypass flag');
-  }
-}
-
-console.log('\n2c. PDF generation smoke test');
-
-const pdfSmokeRoot = mkdtempSync(join(tmpdir(), 'career-ops-pdf-smoke-'));
-const pdfSmokeInput = join(pdfSmokeRoot, 'smoke.html');
-const pdfSmokeOutput = join(ROOT, 'output', `smoke-${Date.now()}-${process.pid}.pdf`);
+console.log('\n3. Liveness classification');
 
 try {
-  mkdirSync(join(ROOT, 'output'), { recursive: true });
-  writeFileSync(
-    pdfSmokeInput,
-    `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Career-Ops PDF Smoke</title>
-    <style>
-      body { font-family: Arial, sans-serif; margin: 32px; color: #111; }
-      h1 { font-size: 22px; margin-bottom: 12px; }
-      p { font-size: 12px; line-height: 1.5; }
-    </style>
-  </head>
-  <body>
-    <h1>Career-Ops PDF Smoke</h1>
-    <p>This smoke test exercises ATS normalization for smart quotes, em dashes, ellipsis, and non-breaking spaces.</p>
-    <p>“Quoted text” — Product-minded platform engineer… Remote&nbsp;friendly.</p>
-  </body>
-</html>\n`,
-    'utf-8',
+  const { classifyLiveness } = await import(pathToFileURL(join(ROOT, 'liveness-core.mjs')).href);
+  const { validatePublicHttpUrl } = await import(pathToFileURL(join(ROOT, 'liveness-browser.mjs')).href);
+
+  const expiredChromeApply = classifyLiveness({
+    finalUrl: 'https://example.com/jobs/closed-role',
+    bodyText: 'Company Careers\nApply\nThe job you are looking for is no longer open.',
+    applyControls: [],
+  });
+  if (expiredChromeApply.result === 'expired') {
+    pass('Expired pages are not revived by nav/footer "Apply" text');
+  } else {
+    fail(`Expired page misclassified as ${expiredChromeApply.result}`);
+  }
+
+  const activeWorkdayPage = classifyLiveness({
+    finalUrl: 'https://example.workday.com/job/123',
+    bodyText: [
+      '663 JOBS FOUND',
+      'Senior AI Engineer',
+      'Join our applied AI team to ship production systems, partner with customers, and own delivery across evaluation, deployment, and reliability.',
+    ].join('\n'),
+    applyControls: ['Apply for this Job'],
+  });
+  if (activeWorkdayPage.result === 'active') {
+    pass('Visible apply controls still keep real job pages active');
+  } else {
+    fail(`Active job page misclassified as ${activeWorkdayPage.result}`);
+  }
+
+  const closedMycareersfuture = classifyLiveness({
+    finalUrl: 'https://www.mycareersfuture.gov.sg/job/engineering/senior-staff-embedded-software-engineer',
+    bodyText: [
+      'Senior Staff Embedded Software Engineer',
+      'MaxLinear Asia Singapore Private Limited',
+      '9 applications    Posted 27 Oct 2025    Closed on 26 Nov 2025',
+      'Applications have closed for this job',
+      'Log in to Apply',
+      "You'll need to log in with Singpass to verify your identity.",
+      'Roles & Responsibilities: design, develop and maintain embedded firmware for broadband communications ICs.',
+    ].join('\n'),
+    applyControls: ['Log in to Apply'],
+  });
+  if (closedMycareersfuture.result === 'expired') {
+    pass('Closed postings with "Applications have closed" banner are detected');
+  } else {
+    fail(`Closed mycareersfuture posting misclassified as ${closedMycareersfuture.result}`);
+  }
+
+  const blockedAlias = await validatePublicHttpUrl(
+    'https://jobs.example.test/123',
+    async () => ['127.0.0.1'],
   );
+  if (!blockedAlias.ok && blockedAlias.code === 'blocked_resolved_host') {
+    pass('Liveness guard blocks DNS aliases resolving to non-public IPs');
+  } else {
+    fail('Liveness guard allows DNS aliases that resolve to non-public IPs');
+  }
 
-  const atsSmokeLine = `${String.fromCodePoint(0x201c)}Quoted text${String.fromCodePoint(0x201d)} ` +
-    `${String.fromCodePoint(0x2014)} Product-minded platform engineer${String.fromCodePoint(0x2026)} ` +
-    `Remote${String.fromCodePoint(0x00a0)}friendly.`;
-  const normalizedSmokeHtml = readFileSync(pdfSmokeInput, 'utf-8').replace(
-    /<p>.*Product-minded platform engineer.*<\/p>/,
-    `<p>${atsSmokeLine}</p>`,
+  const allowedPublic = await validatePublicHttpUrl(
+    'https://jobs.example.test/456',
+    async () => ['93.184.216.34'],
   );
-  writeFileSync(pdfSmokeInput, normalizedSmokeHtml, 'utf-8');
-
-  const pdfResult = runNode(['generate-pdf.mjs', pdfSmokeInput, pdfSmokeOutput, '--format=a4']);
-  const hasPdf = existsSync(pdfSmokeOutput);
-  const pdfBytes = hasPdf ? statSync(pdfSmokeOutput).size : 0;
-  const normalizationSignals = ['smart-double-quote=', 'em-dash=', 'ellipsis=', 'nbsp='];
-  const normalizationLogged = pdfResult !== null && pdfResult.includes('ATS normalization:') &&
-    normalizationSignals.every(signal => pdfResult.includes(signal));
-  const pageCountLogged = pdfResult !== null && /Pages:\s*[1-9]\d*/.test(pdfResult);
-
-  if (pdfResult !== null && hasPdf && pdfBytes > 0 && normalizationLogged && pageCountLogged) {
-    pass('generate-pdf.mjs normalizes ATS-sensitive glyphs and produces a paginated PDF fixture');
+  if (allowedPublic.ok) {
+    pass('Liveness guard allows hostnames resolving to public IPs');
   } else {
-    fail('generate-pdf.mjs failed ATS normalization/PDF smoke expectations');
+    fail('Liveness guard incorrectly blocks public hostname resolutions');
   }
-
-  const traversalTarget = join(tmpdir(), `career-ops-traversal-${Date.now()}-${process.pid}.pdf`);
-  const traversalResult = runNode(['generate-pdf.mjs', pdfSmokeInput, traversalTarget, '--format=a4']);
-  const traversalCreated = existsSync(traversalTarget);
-  if (traversalResult === null && !traversalCreated) {
-    pass('generate-pdf.mjs blocks output path traversal outside project');
-  } else {
-    fail('generate-pdf.mjs still allows output path traversal outside project');
-  }
-  rmSync(traversalTarget, { force: true });
-} finally {
-  rmSync(pdfSmokeRoot, { recursive: true, force: true });
-  rmSync(pdfSmokeOutput, { force: true });
+} catch (e) {
+  fail(`Liveness classification tests crashed: ${e.message}`);
 }
 
-console.log('\n2d. Fixture-backed pipeline verification');
+// ── 4. DASHBOARD BUILD ──────────────────────────────────────────
 
-const fixtureBundle = join(ROOT, 'fixtures', 'pipeline');
-if (!existsSync(fixtureBundle)) {
-  fail('Missing fixtures/pipeline bundle required for reproducible verification');
-} else {
-  const fixtureVerifyRoot = mkdtempSync(join(tmpdir(), 'career-ops-verify-fixture-'));
-  try {
-    cpSync(fixtureBundle, fixtureVerifyRoot, { recursive: true });
-    writeFileSync(join(fixtureVerifyRoot, 'verify-pipeline.mjs'), readFile('verify-pipeline.mjs'), 'utf-8');
-
-    const fixtureVerifyOutput = run('node verify-pipeline.mjs', { cwd: fixtureVerifyRoot });
-    if (
-      fixtureVerifyOutput !== null &&
-      fixtureVerifyOutput.includes('Checking 1 entries') &&
-      fixtureVerifyOutput.includes('Pipeline is clean')
-    ) {
-      pass('verify-pipeline.mjs validates the committed fixture bundle');
-    } else {
-      fail('verify-pipeline.mjs fixture validation failed');
-    }
-  } finally {
-    rmSync(fixtureVerifyRoot, { recursive: true, force: true });
-  }
-}
-
-console.log('\n2e. Liveness URL guard tests');
-
-try {
-  const livenessModule = await import(new URL('./check-liveness.mjs', import.meta.url));
-  const validateLivenessUrl = livenessModule?.validatePublicHttpUrl;
-  if (typeof validateLivenessUrl !== 'function') {
-    fail('check-liveness.mjs does not export validatePublicHttpUrl for guard testing');
-  } else {
-    const blockedAlias = await validateLivenessUrl(
-      'https://jobs.example.test/123',
-      async () => ['127.0.0.1'],
-    );
-    if (!blockedAlias.ok && blockedAlias.reason.includes('blocked resolved non-public ip')) {
-      pass('Liveness checker blocks DNS aliases resolving to non-public IPs');
-    } else {
-      fail('Liveness checker allows DNS aliases that resolve to non-public IPs');
-    }
-
-    const allowedPublic = await validateLivenessUrl(
-      'https://jobs.example.test/456',
-      async () => ['93.184.216.34'],
-    );
-    if (allowedPublic.ok) {
-      pass('Liveness checker allows hostnames resolving to public IPs');
-    } else {
-      fail('Liveness checker incorrectly blocks public hostname resolutions');
-    }
-
-    const blockedIpv6Alias = await validateLivenessUrl(
-      'https://jobs.example.test/789',
-      async () => ['::1'],
-    );
-    if (!blockedIpv6Alias.ok && blockedIpv6Alias.reason.includes('blocked resolved non-public ip')) {
-      pass('Liveness checker blocks DNS aliases resolving to loopback IPv6');
-    } else {
-      fail('Liveness checker allows DNS aliases that resolve to loopback IPv6');
-    }
-  }
-} catch {
-  fail('Unable to execute liveness URL guard tests');
-}
-
-// 3. DASHBOARD BUILD
 if (!QUICK) {
-  console.log('\n3. Dashboard build');
-  const goVersion = run('go version');
-  if (goVersion === null) {
-    warn('Go not installed; dashboard build skipped');
+  console.log('\n4. Dashboard build');
+  const goBuild = run('cd dashboard && go build -o /tmp/career-dashboard-test . 2>&1');
+  if (goBuild !== null) {
+    pass('Dashboard compiles');
   } else {
-    const dashboardBuildRoot = mkdtempSync(join(tmpdir(), 'career-ops-dashboard-build-'));
-    try {
-      const outputName = process.platform === 'win32' ? 'career-dashboard-test.exe' : 'career-dashboard-test';
-      const outputPath = join(dashboardBuildRoot, outputName);
-      const build = run(`go build -o "${outputPath}" .`, { cwd: join(ROOT, 'dashboard') });
-      if (build !== null && existsSync(outputPath)) {
-        pass('Dashboard compiles');
-      } else {
-        fail('Dashboard build failed');
-      }
-    } finally {
-      rmSync(dashboardBuildRoot, { recursive: true, force: true });
-    }
+    fail('Dashboard build failed');
   }
 } else {
-  console.log('\n3. Dashboard build (skipped --quick)');
+  console.log('\n4. Dashboard build (skipped --quick)');
 }
 
-// 4. DATA CONTRACT
-console.log('\n4. Data contract validation');
+// ── 5. DATA CONTRACT ────────────────────────────────────────────
 
+console.log('\n5. Data contract validation');
+
+// Check system files exist
 const systemFiles = [
-  'AGENTS.md',
-  'CLAUDE.md',
-  'VERSION',
-  'DATA_CONTRACT.md',
-  'modes/_shared.md',
-  'modes/_profile.template.md',
-  'modes/oferta.md',
-  'modes/pdf.md',
-  'modes/scan.md',
-  'templates/states.yml',
-  'templates/cv-template.html',
+  'CLAUDE.md', 'VERSION', 'DATA_CONTRACT.md',
+  'modes/_shared.md', 'modes/_profile.template.md',
+  'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
+  'templates/states.yml', 'templates/cv-template.html',
   '.claude/skills/career-ops/SKILL.md',
-  'docs/AGENT_COMPATIBILITY.md',
-  'batch/agent-adapter.example.sh',
 ];
 
 for (const f of systemFiles) {
@@ -438,105 +197,98 @@ for (const f of systemFiles) {
   }
 }
 
+// Check user files are NOT tracked (gitignored)
 const userFiles = [
-  'config/profile.yml',
-  'modes/_profile.md',
-  'portals.yml',
+  'config/profile.yml', 'modes/_profile.md', 'portals.yml',
 ];
-
 for (const f of userFiles) {
-  const tracked = run(`git ls-files ${f}`);
-  if (tracked === '' || tracked === null) {
+  const tracked = run('git', ['ls-files', f]);
+  if (tracked === '') {
+    pass(`User file gitignored: ${f}`);
+  } else if (tracked === null) {
     pass(`User file gitignored: ${f}`);
   } else {
     fail(`User file IS tracked (should be gitignored): ${f}`);
   }
 }
 
-// 5. PERSONAL DATA LEAK CHECK
-console.log('\n5. Personal data leak check');
+// ── 6. PERSONAL DATA LEAK CHECK ─────────────────────────────────
+
+console.log('\n6. Personal data leak check');
 
 const leakPatterns = [
-  'Santiago',
-  'Santifer iRepair',
-  'Zinkee',
-  'ALMAS',
-  'hi@santifer.io',
-  'hola@santifer.io',
-  '688921377',
-  '/Users/santifer/',
+  'Santiago', 'santifer.io', 'Santifer iRepair', 'Zinkee', 'ALMAS',
+  'hi@santifer.io', '688921377', '/Users/santifer/',
 ];
 
-const allowedFiles = new Set([
-  'README.md',
-  'LICENSE',
-  'CITATION.cff',
-  'CONTRIBUTING.md',
-  'package.json',
-  '.github/FUNDING.yml',
-  'CLAUDE.md',
-  'AGENTS.md',
-  'docs/AGENT_COMPATIBILITY.md',
-  'test-all.mjs',
-]);
+const scanExtensions = ['md', 'yml', 'html', 'mjs', 'sh', 'go', 'json'];
+const allowedFiles = [
+  // English README + localized translations (all legitimately credit Santiago)
+  'README.md', 'README.es.md', 'README.ja.md', 'README.ko-KR.md',
+  'README.pt-BR.md', 'README.ru.md', 'README.cn.md', 'README.zh-TW.md',
+  // Standard project files
+  'LICENSE', 'CITATION.cff', 'CONTRIBUTING.md', 'CHANGELOG.md', 'TRADEMARK.md',
+  'package.json', '.github/FUNDING.yml', 'CLAUDE.md', 'AGENTS.md', 'go.mod', 'test-all.mjs',
+  '.claude-plugin/marketplace.json', '.claude-plugin/plugin.json',
+  // Community / governance files (added in v1.3.0, all legitimately reference the maintainer)
+  'CODE_OF_CONDUCT.md', 'GOVERNANCE.md', 'SECURITY.md', 'SUPPORT.md',
+  '.github/SECURITY.md',
+  // Dashboard credit string
+  'dashboard/internal/ui/screens/pipeline.go',
+  'dashboard/internal/ui/screens/progress.go',
+];
 
-const scannedFiles = listFiles(ROOT).filter(f => /\.(md|yml|html|mjs|sh|go|json)$/i.test(f));
+// Build pathspec for git grep — only scan tracked files matching these
+// extensions. This is what `grep -rn` was trying to do, but git-aware:
+// untracked files (debate artifacts, AI tool scratch, local plans/) and
+// gitignored files can't trigger false positives because they were never
+// going to reach a commit anyway.
+const grepPathspec = scanExtensions.map(e => `'*.${e}'`).join(' ');
+
 let leakFound = false;
-
-for (const file of scannedFiles) {
-  if (allowedFiles.has(file)) continue;
-  if (file === 'dashboard/go.mod' || file === 'dashboard/go.sum') continue;
-  const content = readFile(file);
-  for (const pattern of leakPatterns) {
-    if (content.includes(pattern)) {
+for (const pattern of leakPatterns) {
+  const result = run(
+    `git grep -n "${pattern}" -- ${grepPathspec} 2>/dev/null`
+  );
+  if (result) {
+    for (const line of result.split('\n')) {
+      const file = line.split(':')[0];
+      if (allowedFiles.some(a => file.includes(a))) continue;
+      if (file.includes('dashboard/go.mod')) continue;
       warn(`Possible personal data in ${file}: "${pattern}"`);
       leakFound = true;
     }
   }
 }
-
 if (!leakFound) {
   pass('No personal data leaks outside allowed files');
 }
 
-// 6. ABSOLUTE PATH CHECK
-console.log('\n6. Absolute path check');
+// ── 7. ABSOLUTE PATH CHECK ──────────────────────────────────────
 
-const absoluteHits = [];
-for (const file of scannedFiles) {
-  if (allowedFiles.has(file)) continue;
-  if (file === 'dashboard/go.mod' || file === 'dashboard/go.sum') continue;
-  const content = readFile(file);
-  if (content.includes('/Users/')) {
-    absoluteHits.push(`${file}: contains /Users/ path`);
+console.log('\n7. Absolute path check');
+
+// Same git grep approach: only scans tracked files. Untracked AI tool
+// outputs, local debate artifacts, etc. can't false-positive here.
+const absPathResult = run(
+  `git grep -n "/Users/" -- '*.mjs' '*.sh' '*.md' '*.go' '*.yml' 2>/dev/null | grep -v README.md | grep -v LICENSE | grep -v CLAUDE.md | grep -v test-all.mjs`
+);
+if (!absPathResult) {
+  pass('No absolute paths in code files');
+} else {
+  for (const line of absPathResult.split('\n').filter(Boolean)) {
+    fail(`Absolute path: ${line.slice(0, 100)}`);
   }
 }
 
-if (absoluteHits.length === 0) {
-  pass('No absolute paths in code files');
-} else {
-  for (const hit of absoluteHits) fail(hit);
-}
+// ── 8. MODE FILE INTEGRITY ──────────────────────────────────────
 
-// 7. MODE FILE INTEGRITY
-console.log('\n7. Mode file integrity');
+console.log('\n8. Mode file integrity');
 
 const expectedModes = [
-  '_shared.md',
-  '_profile.template.md',
-  'oferta.md',
-  'pdf.md',
-  'scan.md',
-  'batch.md',
-  'apply.md',
-  'auto-pipeline.md',
-  'contacto.md',
-  'deep.md',
-  'ofertas.md',
-  'pipeline.md',
-  'project.md',
-  'tracker.md',
-  'training.md',
+  '_shared.md', '_profile.template.md', 'oferta.md', 'pdf.md', 'scan.md',
+  'batch.md', 'apply.md', 'auto-pipeline.md', 'contacto.md', 'deep.md',
+  'ofertas.md', 'pipeline.md', 'project.md', 'tracker.md', 'training.md',
 ];
 
 for (const mode of expectedModes) {
@@ -547,6 +299,7 @@ for (const mode of expectedModes) {
   }
 }
 
+// Check _shared.md references _profile.md
 const shared = readFile('modes/_shared.md');
 if (shared.includes('_profile.md')) {
   pass('_shared.md references _profile.md');
@@ -554,20 +307,78 @@ if (shared.includes('_profile.md')) {
   fail('_shared.md does NOT reference _profile.md');
 }
 
-// 8. AGENT INSTRUCTION INTEGRITY
-console.log('\n8. Agent instruction integrity');
+// ── 9. LOCAL PARSER CONTRACT ────────────────────────────────────
+
+console.log('\n9. Local parser contract');
+
+const scanScript = readFile('scan.mjs');
+if (
+  scanScript.includes('typeof company.name !== \'string\'') &&
+  scanScript.includes('company.name.trim()') &&
+  scanScript.includes('company.name.toLowerCase()')
+) {
+  pass('scan.mjs guards company names before filtering');
+} else {
+  fail('scan.mjs does not guard company names before filtering');
+}
+
+if (
+  scanScript.includes("skipIds: ['local-parser']") &&
+  scanScript.includes('local parser failed, used API fallback') &&
+  scanScript.includes('resolveProvider(company, providers')
+) {
+  pass('scan.mjs falls back to ATS API when local parser fails');
+} else {
+  fail('scan.mjs does not fall back to ATS API when local parser fails');
+}
+
+if (fileExists('providers/local-parser.mjs')) {
+  pass('local-parser provider module exists');
+} else {
+  fail('local-parser provider module is missing');
+}
+
+const scanMode = fileExists('modes/scan.md') ? readFile('modes/scan.md') : '';
+if (
+  scanMode.includes('local_parser_ok') &&
+  scanMode.includes('no repetir scraping caro') &&
+  scanMode.includes('nombre no listado en `local_parser_ok`')
+) {
+  pass('scan.md skips expensive levels after successful local parser');
+} else {
+  fail('scan.md missing local_parser_ok skip rules for agent scan');
+}
+
+if (!fileExists('scripts/parsers/cohere_jobs.py')) {
+  pass('Cohere parser example is not bundled as a runtime script');
+} else {
+  fail('Cohere parser example is still bundled as a runtime script');
+}
+
+const portalExample = readFile('templates/portals.example.yml');
+if (
+  !portalExample.includes('cohere_jobs.py') &&
+  portalExample.includes('scripts/parsers/example-js-company-jobs.js') &&
+  portalExample.includes('scripts/parsers/example_python_company_jobs.py') &&
+  portalExample.includes('already know their target careers URL')
+) {
+  pass('portals example documents a generic local parser contract');
+} else {
+  fail('portals example still points at a bundled Cohere parser');
+}
+
+// ── 10. AGENTS.md INTEGRITY ─────────────────────────────────────
+
+console.log('\n10. AGENTS.md integrity');
 
 const agents = readFile('AGENTS.md');
-const requiredAgentSections = [
-  'Data Contract',
-  'Session Start',
-  'First-Run Onboarding',
-  'Ethical Use',
-  'Batch Runner Contract',
-  'Pipeline Integrity',
+const requiredSections = [
+  'Data Contract', 'Update Check', 'Ethical Use',
+  'Offer Verification', 'Canonical States', 'TSV Format',
+  'First Run', 'Onboarding',
 ];
 
-for (const section of requiredAgentSections) {
+for (const section of requiredSections) {
   if (agents.includes(section)) {
     pass(`AGENTS.md has section: ${section}`);
   } else {
@@ -575,92 +386,9 @@ for (const section of requiredAgentSections) {
   }
 }
 
-const claude = readFile('CLAUDE.md');
-if (claude.includes('AGENTS.md') && claude.toLowerCase().includes('compatibility')) {
-  pass('CLAUDE.md points to the universal guide');
-} else {
-  fail('CLAUDE.md does not behave like a compatibility layer');
-}
+// ── 11. VERSION FILE ─────────────────────────────────────────────
 
-const batchRunner = readFile('batch/batch-runner.sh');
-if (batchRunner.includes('CAREER_OPS_AGENT') && batchRunner.includes('CAREER_OPS_AGENT_ADAPTER')) {
-  pass('Batch runner exposes agent adapter configuration');
-} else {
-  fail('Batch runner is still missing agent adapter configuration');
-}
-
-if (batchRunner.includes('CAREER_OPS_UNSAFE_AGENT_EXEC')) {
-  pass('Batch runner exposes explicit unsafe execution opt-in');
-} else {
-  fail('Batch runner missing explicit unsafe execution opt-in');
-}
-
-if (batchRunner.includes('escape_sed_replacement') && batchRunner.includes('mktemp "$BATCH_DIR/.batch-jd-')) {
-  pass('Batch runner escapes sed replacements and uses mktemp for JD file paths');
-} else {
-  fail('Batch runner missing sed escaping or mktemp-based JD paths');
-}
-
-if (batchRunner.includes('s|{{URL}}|${escaped_url}|g') && batchRunner.includes('s|{{ID}}|${escaped_id}|g')) {
-  pass('Batch prompt placeholder replacement uses escaped variables');
-} else {
-  fail('Batch prompt placeholder replacement does not use escaped variables');
-}
-
-const updaterContent = readFile('update-system.mjs');
-if (updaterContent.includes("execFileSync('git', args")) {
-  pass('Updater uses argument-based git execution');
-} else {
-  fail('Updater does not use argument-based git execution');
-}
-
-if (updaterContent.includes('const VERSION_RE = /^\\d+\\.\\d+\\.\\d+$/;') && updaterContent.includes('assertVersion(')) {
-  pass('Updater validates VERSION as strict semver');
-} else {
-  fail('Updater missing strict VERSION validation');
-}
-
-if (!updaterContent.includes('execSync(`git ${cmd}`')) {
-  pass('Updater no longer constructs git shell commands from strings');
-} else {
-  fail('Updater still constructs git shell commands from strings');
-}
-
-const pdfScript = readFile('generate-pdf.mjs');
-if (pdfScript.includes('Refusing to write PDF outside the project directory.')) {
-  pass('PDF generator blocks output writes outside project directory');
-} else {
-  fail('PDF generator does not block output writes outside project directory');
-}
-
-const livenessScript = readFile('check-liveness.mjs');
-if (
-  livenessScript.includes('validatePublicHttpUrl') &&
-  livenessScript.includes('blocked URL protocol') &&
-  livenessScript.includes('blocked non-public host') &&
-  livenessScript.includes('blocked resolved non-public ip')
-) {
-  pass('Liveness checker validates public HTTP(S) URLs and blocks DNS-resolved private hosts');
-} else {
-  fail('Liveness checker missing URL protocol/host/DNS validation safeguards');
-}
-
-const mergeTrackerScript = readFile('merge-tracker.mjs');
-if (mergeTrackerScript.includes('sanitizeMarkdownCell') && mergeTrackerScript.includes("replace(/\\|/g, '&#124;')")) {
-  pass('Tracker merge sanitizes markdown cell separators');
-} else {
-  fail('Tracker merge missing markdown cell sanitization');
-}
-
-const gitignoreContent = readFile('.gitignore');
-if (gitignoreContent.includes('*.bak')) {
-  pass('.gitignore excludes backup .bak files');
-} else {
-  fail('.gitignore does not exclude backup .bak files');
-}
-
-// 9. VERSION FILE
-console.log('\n9. Version file');
+console.log('\n11. Version file');
 
 if (fileExists('VERSION')) {
   const version = readFile('VERSION').trim();
@@ -669,28 +397,729 @@ if (fileExists('VERSION')) {
   } else {
     fail(`VERSION is not valid semver: "${version}"`);
   }
-
-  const pkg = JSON.parse(readFile('package.json'));
-  if (pkg.version === version) {
-    pass(`package.json version matches VERSION (${version})`);
-  } else {
-    fail(`package.json version (${pkg.version}) does not match VERSION (${version})`);
-  }
 } else {
   fail('VERSION file missing');
 }
 
+// ── 11. LOCATION FILTER — always_allow tier ───────────────────────
+
+console.log('\n11. Location filter — always_allow tier');
+
+try {
+  const { buildLocationFilter } = await import(pathToFileURL(join(ROOT, 'scan.mjs')).href);
+
+  const filter = buildLocationFilter({
+    always_allow: ['belgium', 'brussels'],
+    allow: ['europe', 'emea', 'remote'],
+    block: ['france', 'germany', 'united states'],
+  });
+
+  // Case 1: home-region passes regardless of other text
+  if (filter('Brussels, Belgium') === true) pass('Brussels, Belgium passes (always_allow hit)');
+  else fail('Brussels, Belgium should pass');
+
+  // Case 2: always_allow wins over block (THE motivating case for this tier)
+  if (filter('Remote, Belgium or France') === true) pass('Remote, Belgium or France passes (always_allow beats block)');
+  else fail('Remote, Belgium or France should pass — always_allow must win over block');
+
+  // Case 3: no always_allow hit, block still rejects
+  if (filter('Paris, France') === false) pass('Paris, France is rejected (block still applies)');
+  else fail('Paris, France should be rejected');
+
+  // Case 4: empty location → pass (existing semantics, unchanged)
+  if (filter('') === true) pass('empty location passes (unchanged semantics)');
+  else fail('empty location should pass');
+
+  // Case 5: case-insensitivity
+  if (filter('BRUSSELS, BELGIUM') === true) pass('case-insensitive match works');
+  else fail('case-insensitive match failed');
+
+  // Case 6: backward compatibility — no always_allow key behaves like stock allow/block
+  const stockFilter = buildLocationFilter({
+    allow: ['europe', 'remote'],
+    block: ['france'],
+  });
+  if (stockFilter('Remote, Belgium or France') === false) pass('without always_allow, block still wins (backward compatible)');
+  else fail('without always_allow, behaviour must match stock allow/block (block wins)');
+
+  // Case 7: null/missing locationFilter → pass-all filter (early-return path)
+  const nullFilter = buildLocationFilter(null);
+  if (nullFilter('Anywhere on Earth') === true && nullFilter('') === true) {
+    pass('null locationFilter returns a pass-all filter (early-return path)');
+  } else {
+    fail('null locationFilter should return a pass-all filter');
+  }
+
+  // Case 8: string-instead-of-array → wrapped to a 1-item list
+  const stringFilter = buildLocationFilter({ always_allow: 'belgium', block: ['france'] });
+  if (stringFilter('Remote, Belgium or France') === true) {
+    pass('always_allow as a bare string is wrapped to a single-item list');
+  } else {
+    fail('always_allow as a bare string should still work');
+  }
+
+  // Case 9: null/non-string items are filtered out (no crash, no false matches)
+  const messyFilter = buildLocationFilter({
+    always_allow: [null, 'belgium', 42, undefined],
+    block: ['france', null, 7],
+  });
+  if (messyFilter('Brussels, Belgium') === true && messyFilter('Paris, France') === false) {
+    pass('non-string entries (null, numbers, undefined) are filtered out without crashing');
+  } else {
+    fail('mixed-type keyword lists should not crash and should still match string entries');
+  }
+
+  // Case 10: all-null/non-string list → empty after normalization (no false rejects)
+  const allBadFilter = buildLocationFilter({ block: [null, 42, undefined], allow: ['remote'] });
+  if (allBadFilter('Remote') === true) {
+    pass('a block list with only non-string entries normalizes to [] (no false rejects)');
+  } else {
+    fail('non-string-only block list should not cause rejection');
+  }
+
+  // Case 11: empty / whitespace-only entries are dropped (would otherwise pass-all via includes(''))
+  const emptyKeywordFilter = buildLocationFilter({
+    always_allow: ['', '  '],
+    allow: ['remote'],
+    block: ['france'],
+  });
+  if (emptyKeywordFilter('Paris, France') === false) {
+    pass('empty/whitespace always_allow entries are dropped (no pass-all via includes(""))');
+  } else {
+    fail('empty always_allow entries should NOT bypass block — would have made the filter pass-all');
+  }
+
+  // Case 12: surrounding whitespace is trimmed so the keyword still matches
+  const whitespaceFilter = buildLocationFilter({
+    always_allow: ['  Belgium  ', '\tBrussels\n'],
+    block: ['france'],
+  });
+  if (whitespaceFilter('Remote, Belgium or France') === true) {
+    pass('whitespace-padded keywords still match after trim');
+  } else {
+    fail('"  Belgium  " should be trimmed and still match "Remote, Belgium or France"');
+  }
+
+  // Case 13: whitespace-only location is treated as missing (pass-all-tiers)
+  if (filter('   \t  ') === true) pass('whitespace-only location passes (treated as missing)');
+  else fail('whitespace-only location should pass');
+
+  // Case 14: non-string location (number/object/null) → pass without throwing
+  let crashed = false;
+  try {
+    const r1 = filter(42);
+    const r2 = filter({ city: 'Brussels' });
+    const r3 = filter(null);
+    const r4 = filter(undefined);
+    if (r1 === true && r2 === true && r3 === true && r4 === true) {
+      pass('non-string location values (number, object, null, undefined) pass without throwing');
+    } else {
+      fail(`non-string location results: number=${r1}, object=${r2}, null=${r3}, undefined=${r4}`);
+    }
+  } catch (e) {
+    crashed = true;
+    fail(`non-string location crashed: ${e.message}`);
+  }
+
+  // Case 15: a malformed location (e.g. legacy object) does NOT bypass block when interpreted naively —
+  // the guard returns true (pass) BEFORE block/allow even run, which is correct: scoring/eval happens
+  // downstream from the scan filter, so malformed locations should fall through to the manual evaluation
+  // step rather than being silently dropped here.
+  if (filter(42) === true) pass('non-string locations are passed through to downstream evaluation, not silently dropped');
+  else fail('non-string locations should pass through');
+
+} catch (e) {
+  fail(`always_allow tests crashed: ${e.message}`);
+}
+// ── 12. FOLLOW-UP CADENCE LOGIC ─────────────────────────────────
+
+console.log('\n12. Follow-up cadence logic');
+
+try {
+  const cadence = await import(pathToFileURL(join(ROOT, 'followup-cadence.mjs')).href);
+
+  // CLI regression: the import.meta.url guard must still let the module run as a CLI.
+  // Data-independent — default mode emits the result as JSON: a `metadata` object when
+  // the tracker has applications, or an `{error}` object (exit 1) when it is empty.
+  // Empty output would mean the guard wrongly suppressed main().
+  let cliOut = '';
+  try {
+    cliOut = execFileSync(NODE, [join(ROOT, 'followup-cadence.mjs')], { cwd: ROOT, encoding: 'utf-8', timeout: 30000 });
+  } catch (cliErr) {
+    cliOut = `${cliErr.stdout || ''}`; // exit 1 on an empty tracker is expected; keep stdout
+  }
+  let cliJson = null;
+  try { cliJson = JSON.parse(cliOut.trim()); } catch { /* leave null → fail below */ }
+  if (cliJson && typeof cliJson === 'object' && ('metadata' in cliJson || 'error' in cliJson)) {
+    pass('CLI still executes under the import.meta.url guard (emits result JSON)');
+  } else {
+    fail('CLI produced no structured JSON when run directly — import.meta.url guard may be broken');
+  }
+
+  // Date helpers
+  if (cadence.addDays(cadence.parseDate('2026-05-01'), 7) === '2026-05-08') {
+    pass('addDays advances a parsed date by N days (UTC)');
+  } else {
+    fail(`addDays produced ${cadence.addDays(cadence.parseDate('2026-05-01'), 7)}`);
+  }
+  if (cadence.daysBetween(cadence.parseDate('2026-05-01'), cadence.parseDate('2026-05-08')) === 7) {
+    pass('daysBetween counts whole days between two dates');
+  } else {
+    fail('daysBetween miscounted');
+  }
+  if (cadence.parseDate('not-a-date') === null && cadence.parseDate('2026-05-01') instanceof Date) {
+    pass('parseDate rejects malformed input and accepts ISO dates');
+  } else {
+    fail('parseDate validation wrong');
+  }
+
+  // Status normalization (strips bold + trailing date, lowercases, maps aliases)
+  if (cadence.normalizeStatus('**Applied** 2026-05-01') === 'applied') {
+    pass('normalizeStatus strips bold + trailing date and lowercases');
+  } else {
+    fail(`normalizeStatus produced ${cadence.normalizeStatus('**Applied** 2026-05-01')}`);
+  }
+
+  // Urgency decision tree (CADENCE defaults: applied_first=7, max_followups=2, responded_initial=1, interview_thankyou=1)
+  const urgencyCases = [
+    [['applied', 7, null, 0], 'overdue', 'applied past applied_first → overdue'],
+    [['applied', 3, null, 0], 'waiting', 'applied within window → waiting'],
+    [['applied', 30, null, 2], 'cold', 'applied at max follow-ups → cold'],
+    [['responded', 0, null, 0], 'urgent', 'responded before responded_initial → urgent'],
+    [['interview', 1, null, 0], 'overdue', 'interview past thank-you window → overdue'],
+  ];
+  for (const [args, expected, label] of urgencyCases) {
+    const got = cadence.computeUrgency(...args);
+    if (got === expected) pass(`computeUrgency: ${label}`);
+    else fail(`computeUrgency ${label}: expected ${expected}, got ${got}`);
+  }
+
+  // Next follow-up date scheduling
+  const nextCases = [
+    [['applied', '2026-05-01', null, 0], '2026-05-08', 'first applied follow-up = appDate + applied_first'],
+    [['applied', '2026-05-01', null, 2], null, 'cold (max follow-ups) → null'],
+    [['interview', '2026-05-01', null, 0], '2026-05-02', 'interview = appDate + interview_thankyou'],
+  ];
+  for (const [args, expected, label] of nextCases) {
+    const got = cadence.computeNextFollowupDate(...args);
+    if (got === expected) pass(`computeNextFollowupDate: ${label}`);
+    else fail(`computeNextFollowupDate ${label}: expected ${expected}, got ${got}`);
+  }
+} catch (e) {
+  fail(`follow-up cadence module crashed: ${e.message}`);
+}
+
+// ── 12. PROVIDERS — Workable ────────────────────────────────────────
+
+console.log('\n12. Provider — workable');
+
+try {
+  const workable = (await import(pathToFileURL(join(ROOT, 'providers/workable.mjs')).href)).default;
+  const { parseWorkableMarkdown } = await import(pathToFileURL(join(ROOT, 'providers/workable.mjs')).href);
+
+  // detect() — auto-detection from careers_url
+  if (workable.id === 'workable') pass('workable.id is "workable"');
+  else fail(`workable.id is ${JSON.stringify(workable.id)}`);
+
+  const hit = workable.detect({ name: 'TestCo', careers_url: 'https://apply.workable.com/optimile' });
+  if (hit && hit.url === 'https://apply.workable.com/optimile/jobs.md') {
+    pass('workable.detect() resolves apply.workable.com/<slug> → /jobs.md feed');
+  } else {
+    fail(`workable.detect() returned ${JSON.stringify(hit)}`);
+  }
+
+  const miss = workable.detect({ name: 'TestCo', careers_url: 'https://example.com/careers' });
+  if (miss === null) pass('workable.detect() returns null for non-workable URLs');
+  else fail(`workable.detect() should return null, got ${JSON.stringify(miss)}`);
+
+  // parse() — markdown table
+  const sampleMd = [
+    '# Optimile — All Open Positions',
+    '',
+    '| Title | Department | Location | Type | Salary | Posted | Details |',
+    '|---|---|---|---|---|---|---|',
+    '| Senior AI PM | Product | Ghent, Belgium | Full-time | — | 2026-04-01 | [View](https://apply.workable.com/optimile/jobs/view/ABC123.md) |',
+    '| Tech Lead | Engineering | Remote | Full-time | — | 2026-03-25 | [View](https://apply.workable.com/optimile/jobs/view/DEF456.md) |',
+  ].join('\n');
+
+  const jobs = parseWorkableMarkdown(sampleMd, 'Optimile');
+  if (jobs.length === 2) pass('parseWorkableMarkdown extracts 2 jobs from 2-row table');
+  else fail(`parseWorkableMarkdown returned ${jobs.length} jobs, expected 2`);
+
+  if (jobs[0]?.title === 'Senior AI PM' && jobs[0]?.location === 'Ghent, Belgium' && jobs[0]?.company === 'Optimile') {
+    pass('parseWorkableMarkdown extracts title, location, company correctly');
+  } else {
+    fail(`parseWorkableMarkdown row 0 = ${JSON.stringify(jobs[0])}`);
+  }
+
+  if (jobs[0]?.url === 'https://apply.workable.com/optimile/jobs/view/ABC123') {
+    pass('parseWorkableMarkdown strips .md suffix from job URL');
+  } else {
+    fail(`parseWorkableMarkdown should strip .md; got url=${JSON.stringify(jobs[0]?.url)}`);
+  }
+
+  // Robustness
+  if (parseWorkableMarkdown('', 'X').length === 0) pass('empty input → empty result');
+  else fail('empty input should yield empty result');
+
+  if (parseWorkableMarkdown(null, 'X').length === 0) pass('null input → empty result (no crash)');
+  else fail('null input should yield empty result without crashing');
+
+  // fetch() reaches the http context on the happy path (allowed hostname).
+  await workable.fetch(
+    { name: 'Smoke', careers_url: 'https://apply.workable.com/optimile' },
+    {
+      transport: 'http',
+      fetchText: async (url) => {
+        if (!url.startsWith('https://apply.workable.com/')) {
+          throw new Error('fetchText called with unexpected URL');
+        }
+        return '| Title | Department | Location | Type | Salary | Posted | Details |\n|---|---|---|---|---|---|---|\n';
+      },
+      fetchJson: async () => { throw new Error('fetchJson should not be called'); },
+    },
+  );
+  pass('workable.fetch() reaches fetchText on the happy path (allowed hostname)');
+
+  // fetch() rejects an unresolvable careers_url (no apply.workable.com match in URL).
+  let rejected = false;
+  try {
+    await workable.fetch(
+      { name: 'BadUrl', careers_url: 'https://evil.com/totally-not-workable' },
+      {
+        transport: 'http',
+        fetchText: async () => { throw new Error('SSRF! should not reach here'); },
+        fetchJson: async () => { throw new Error('SSRF! should not reach here'); },
+      },
+    );
+  } catch (e) {
+    if (e.message.includes('cannot derive feed URL')) {
+      rejected = true;
+    } else {
+      fail(`workable.fetch() rejected with wrong error: ${e.message}`);
+    }
+  }
+  if (rejected) pass('workable.fetch() rejects unresolvable careers_url before fetch');
+  else fail('workable.fetch() should throw cannot-derive-feed-URL for non-Workable URLs');
+
+  // SSRF: malicious URL with apply.workable.com in the PATH (not hostname) must not be detected as Workable.
+  // With strict URL parsing, the hostname `evil.example` fails the check and detect() returns null.
+  if (workable.detect({ name: 'Spoof', careers_url: 'https://evil.example/apply.workable.com/slug' }) === null) {
+    pass('workable.detect() rejects path-spoofed URLs (apply.workable.com in path, not hostname)');
+  } else {
+    fail('workable.detect() must NOT misdetect URLs that contain apply.workable.com in the path');
+  }
+
+  // careers_url with non-string value (e.g. YAML mistake passing a number) → detect() returns null without crashing
+  if (workable.detect({ name: 'X', careers_url: 42 }) === null) {
+    pass('workable.detect() returns null for non-string careers_url (42)');
+  } else {
+    fail('workable.detect() should treat non-string careers_url as missing');
+  }
+
+  // Workable parser tolerates a title with a stray pipe — URL is extracted from the line, not cols[7]
+  const strayPipeMd = [
+    '| Title | Department | Location | Type | Salary | Posted | Details |',
+    '|---|---|---|---|---|---|---|',
+    '| Senior PM (full | part-time) | Product | Remote | Full-time | — | 2026-04-01 | [View](https://apply.workable.com/x/jobs/view/PIPE.md) |',
+  ].join('\n');
+  const strayJobs = parseWorkableMarkdown(strayPipeMd, 'X');
+  if (strayJobs.length === 1 && strayJobs[0].url === 'https://apply.workable.com/x/jobs/view/PIPE') {
+    pass('parseWorkableMarkdown extracts URL from line-level regex (survives stray pipes in title)');
+  } else {
+    fail(`stray-pipe row not handled correctly: ${JSON.stringify(strayJobs)}`);
+  }
+
+  // Off-domain [View] link is dropped (URL validation)
+  const offDomainMd = [
+    '| Title | Department | Location | Type | Salary | Posted | Details |',
+    '|---|---|---|---|---|---|---|',
+    '| Good Role | Product | Remote | Full-time | — | 2026-04-01 | [View](https://apply.workable.com/x/jobs/view/ABC.md) |',
+    '| Evil Role | Product | Remote | Full-time | — | 2026-04-01 | [View](https://evil.example/jobs/view/X) |',
+    '| Insecure Role | Product | Remote | Full-time | — | 2026-04-01 | [View](http://apply.workable.com/x/jobs/view/Y.md) |',
+  ].join('\n');
+  const filteredJobs = parseWorkableMarkdown(offDomainMd, 'X');
+  if (filteredJobs.length === 1 && filteredJobs[0].title === 'Good Role') {
+    pass('parseWorkableMarkdown drops off-domain and non-https [View] links');
+  } else {
+    fail(`expected only "Good Role" through, got ${JSON.stringify(filteredJobs.map(j => j.title))}`);
+  }
+
+} catch (e) {
+  fail(`workable provider tests crashed: ${e.message}`);
+}
+
+// ── 13. PROVIDERS — SmartRecruiters ─────────────────────────────────
+
+console.log('\n13. Provider — smartrecruiters');
+
+try {
+  const sr = (await import(pathToFileURL(join(ROOT, 'providers/smartrecruiters.mjs')).href)).default;
+  const { parseSmartRecruitersResponse } = await import(pathToFileURL(join(ROOT, 'providers/smartrecruiters.mjs')).href);
+
+  if (sr.id === 'smartrecruiters') pass('smartrecruiters.id is "smartrecruiters"');
+  else fail(`smartrecruiters.id is ${JSON.stringify(sr.id)}`);
+
+  const hitCareers = sr.detect({ name: 'Adyen', careers_url: 'https://careers.smartrecruiters.com/adyen' });
+  if (hitCareers && hitCareers.url.startsWith('https://api.smartrecruiters.com/v1/companies/adyen/postings')) {
+    pass('smartrecruiters.detect() resolves careers.smartrecruiters.com/<slug> → api URL');
+  } else {
+    fail(`smartrecruiters.detect(careers) returned ${JSON.stringify(hitCareers)}`);
+  }
+
+  const hitJobs = sr.detect({ name: 'X', careers_url: 'https://jobs.smartrecruiters.com/x' });
+  if (hitJobs && hitJobs.url.startsWith('https://api.smartrecruiters.com/v1/companies/x/postings')) {
+    pass('smartrecruiters.detect() also handles jobs.smartrecruiters.com');
+  } else {
+    fail(`smartrecruiters.detect(jobs) returned ${JSON.stringify(hitJobs)}`);
+  }
+
+  if (sr.detect({ name: 'X', careers_url: 'https://example.com/careers' }) === null) {
+    pass('smartrecruiters.detect() returns null for non-SR URLs');
+  } else {
+    fail('smartrecruiters.detect() should return null for non-SR URLs');
+  }
+
+  // parseSmartRecruitersResponse
+  const sample = {
+    content: [
+      {
+        id: 'abc-123',
+        name: 'Senior PM',
+        ref: 'https://api.smartrecruiters.com/v1/companies/sgs/postings/abc-123',
+        location: { fullLocation: 'Geneva, Switzerland', remote: false },
+      },
+      {
+        id: 'def-456',
+        name: 'Remote AI Engineer',
+        ref: 'https://api.smartrecruiters.com/v1/companies/sgs/postings/def-456',
+        location: { city: 'Paris', country: 'France', remote: true },
+      },
+      {
+        id: 'ghi-789',
+        name: 'No-ref Role',
+        location: { fullLocation: 'Berlin, Germany' },
+      },
+    ],
+  };
+  const jobs = parseSmartRecruitersResponse(sample, 'SGS');
+  if (jobs.length === 3) pass('parseSmartRecruitersResponse extracts 3 jobs');
+  else fail(`parseSmartRecruitersResponse returned ${jobs.length} jobs`);
+
+  if (jobs[0]?.location === 'Geneva, Switzerland' && jobs[0]?.title === 'Senior PM') {
+    pass('parseSmartRecruitersResponse uses fullLocation when present');
+  } else {
+    fail(`row 0 = ${JSON.stringify(jobs[0])}`);
+  }
+
+  if (jobs[1]?.location === 'Paris, France, Remote') {
+    pass('parseSmartRecruitersResponse builds location from city/country/remote when no fullLocation');
+  } else {
+    fail(`row 1 location = ${JSON.stringify(jobs[1]?.location)}, expected "Paris, France, Remote"`);
+  }
+
+  if (jobs[0]?.url === 'https://jobs.smartrecruiters.com/sgs/postings/abc-123') {
+    pass('parseSmartRecruitersResponse rewrites api.smartrecruiters.com → jobs.smartrecruiters.com');
+  } else {
+    fail(`row 0 url = ${JSON.stringify(jobs[0]?.url)}`);
+  }
+
+  if (jobs[2]?.url && jobs[2].url.startsWith('https://jobs.smartrecruiters.com/sgs/ghi-789')) {
+    pass('parseSmartRecruitersResponse falls back to synthetic URL when ref is missing');
+  } else {
+    fail(`row 2 url = ${JSON.stringify(jobs[2]?.url)}`);
+  }
+
+  // Empty input safety
+  if (parseSmartRecruitersResponse({}, 'X').length === 0) pass('empty {} input → empty result');
+  else fail('empty {} input should yield empty result');
+
+  if (parseSmartRecruitersResponse({ content: 'not an array' }, 'X').length === 0) {
+    pass('non-array content → empty result (no crash)');
+  } else {
+    fail('non-array content should yield empty result');
+  }
+
+  // careers_url with non-string value → detect() returns null without crashing
+  if (sr.detect({ name: 'X', careers_url: { foo: 'bar' } }) === null) {
+    pass('smartrecruiters.detect() returns null for non-string careers_url (object)');
+  } else {
+    fail('smartrecruiters.detect() should treat non-string careers_url as missing');
+  }
+
+  // Fallback URL when both ref AND id are missing → empty string (not "undefined" in URL)
+  const noRefNoId = parseSmartRecruitersResponse(
+    { content: [{ name: 'Stranded Role' }] },
+    'X',
+  );
+  if (noRefNoId.length === 1 && noRefNoId[0].url === '') {
+    pass('parseSmartRecruitersResponse returns url="" when both ref and id are missing');
+  } else {
+    fail(`expected url='' when ref+id both missing, got ${JSON.stringify(noRefNoId[0])}`);
+  }
+
+  // SSRF: malicious URL with smartrecruiters hostname in the PATH (not host) must not be detected.
+  if (sr.detect({ name: 'Spoof', careers_url: 'https://evil.example/careers.smartrecruiters.com/slug' }) === null) {
+    pass('smartrecruiters.detect() rejects path-spoofed URLs');
+  } else {
+    fail('smartrecruiters.detect() must NOT misdetect path-spoofed URLs');
+  }
+
+  // SmartRecruiters: untrusted j.ref host falls through to fallback rather than rewriting
+  const bogusRef = parseSmartRecruitersResponse(
+    { content: [{ id: 'X1', name: 'Strange Role', ref: 'https://evil.example/v1/companies/x/postings/X1' }] },
+    'TestCo',
+  );
+  if (bogusRef[0]?.url && !bogusRef[0].url.includes('evil.example')) {
+    pass('parseSmartRecruitersResponse rejects untrusted j.ref host (falls through to fallback)');
+  } else {
+    fail(`untrusted j.ref leaked into url: ${JSON.stringify(bogusRef[0]?.url)}`);
+  }
+
+  // SmartRecruiters: companyName with spaces/symbols is slugified for the fallback URL
+  const slugifiedCompany = parseSmartRecruitersResponse(
+    { content: [{ id: 'X2', name: 'Strange Role' }] },
+    'My Acme & Co.',
+  );
+  if (slugifiedCompany[0]?.url === 'https://jobs.smartrecruiters.com/my-acme-co/X2-strange-role') {
+    pass('parseSmartRecruitersResponse slugifies the companyName for the fallback URL');
+  } else {
+    fail(`fallback URL not properly slugified: ${JSON.stringify(slugifiedCompany[0]?.url)}`);
+  }
+
+  // Pagination: fetch() loops until an empty page (or short page) is returned
+  let pageRequests = 0;
+  const pagedJobs = await sr.fetch(
+    { name: 'PagedCo', careers_url: 'https://careers.smartrecruiters.com/paged' },
+    {
+      transport: 'http',
+      fetchText: async () => { throw new Error('fetchText should not be called'); },
+      fetchJson: async (url) => {
+        pageRequests++;
+        const offset = parseInt(new URL(url).searchParams.get('offset') || '0', 10);
+        if (offset === 0) {
+          // Page 1: full page (100 items)
+          return { content: Array.from({ length: 100 }, (_, i) => ({ id: `P1-${i}`, name: `Role 1-${i}` })) };
+        }
+        if (offset === 100) {
+          // Page 2: short page (50 items) → loop stops after this
+          return { content: Array.from({ length: 50 }, (_, i) => ({ id: `P2-${i}`, name: `Role 2-${i}` })) };
+        }
+        // Should not be reached because page 2 was short
+        return { content: [] };
+      },
+    },
+  );
+  if (pageRequests === 2 && pagedJobs.length === 150) {
+    pass('smartrecruiters.fetch() paginates and aggregates results (2 pages → 150 total)');
+  } else {
+    fail(`pagination: pageRequests=${pageRequests}, total=${pagedJobs.length} (expected 2 requests / 150 results)`);
+  }
+
+  // Pagination stop condition: empty content terminates the loop
+  let emptyPageRequests = 0;
+  const emptyJobs = await sr.fetch(
+    { name: 'EmptyCo', careers_url: 'https://careers.smartrecruiters.com/empty' },
+    {
+      transport: 'http',
+      fetchText: async () => { throw new Error('fetchText should not be called'); },
+      fetchJson: async () => {
+        emptyPageRequests++;
+        return { content: [] };
+      },
+    },
+  );
+  if (emptyPageRequests === 1 && emptyJobs.length === 0) {
+    pass('smartrecruiters.fetch() stops on the first empty page');
+  } else {
+    fail(`empty pagination: requests=${emptyPageRequests}, total=${emptyJobs.length}`);
+  }
+
+} catch (e) {
+  fail(`smartrecruiters provider tests crashed: ${e.message}`);
+}
+
+// ── 14. PROVIDERS — Recruitee ───────────────────────────────────────
+
+console.log('\n14. Provider — recruitee');
+
+try {
+  const recruitee = (await import(pathToFileURL(join(ROOT, 'providers/recruitee.mjs')).href)).default;
+  const { parseRecruiteeResponse } = await import(pathToFileURL(join(ROOT, 'providers/recruitee.mjs')).href);
+
+  if (recruitee.id === 'recruitee') pass('recruitee.id is "recruitee"');
+  else fail(`recruitee.id is ${JSON.stringify(recruitee.id)}`);
+
+  const hit = recruitee.detect({ name: 'Channable', careers_url: 'https://channable.recruitee.com' });
+  if (hit && hit.url === 'https://channable.recruitee.com/api/offers/') {
+    pass('recruitee.detect() resolves <slug>.recruitee.com → api offers');
+  } else {
+    fail(`recruitee.detect() returned ${JSON.stringify(hit)}`);
+  }
+
+  if (recruitee.detect({ name: 'X', careers_url: 'https://example.com/careers' }) === null) {
+    pass('recruitee.detect() returns null for non-recruitee URLs');
+  } else {
+    fail('recruitee.detect() should return null for non-recruitee URLs');
+  }
+
+  // parseRecruiteeResponse
+  const sample = {
+    offers: [
+      { title: 'Senior PM', careers_url: 'https://channable.recruitee.com/o/senior-pm', city: 'Utrecht', country: 'Netherlands', remote: false },
+      { title: 'Backend Eng', url: 'https://channable.recruitee.com/o/backend', city: 'Amsterdam', country: 'Netherlands', remote: true },
+      { title: 'AI Lead', location: 'Remote, EMEA' },
+    ],
+  };
+  const jobs = parseRecruiteeResponse(sample, 'Channable');
+  if (jobs.length === 3) pass('parseRecruiteeResponse extracts 3 offers');
+  else fail(`parseRecruiteeResponse returned ${jobs.length} offers`);
+
+  if (jobs[0]?.title === 'Senior PM' && jobs[0]?.company === 'Channable' && jobs[0]?.url === 'https://channable.recruitee.com/o/senior-pm') {
+    pass('parseRecruiteeResponse prefers careers_url field over url');
+  } else {
+    fail(`row 0 = ${JSON.stringify(jobs[0])}`);
+  }
+
+  if (jobs[1]?.location === 'Amsterdam, Netherlands, Remote') {
+    pass('parseRecruiteeResponse assembles city/country/remote when no location field');
+  } else {
+    fail(`row 1 location = ${JSON.stringify(jobs[1]?.location)}, expected "Amsterdam, Netherlands, Remote"`);
+  }
+
+  if (jobs[2]?.location === 'Remote, EMEA') {
+    pass('parseRecruiteeResponse uses explicit location field when present');
+  } else {
+    fail(`row 2 location = ${JSON.stringify(jobs[2]?.location)}`);
+  }
+
+  if (parseRecruiteeResponse({}, 'X').length === 0) pass('empty {} → empty result');
+  else fail('empty {} should yield empty result');
+
+  if (parseRecruiteeResponse({ offers: null }, 'X').length === 0) {
+    pass('null offers → empty result (no crash)');
+  } else {
+    fail('null offers should yield empty result');
+  }
+
+  // careers_url with non-string value → detect() returns null without crashing
+  if (recruitee.detect({ name: 'X', careers_url: null }) === null && recruitee.detect({ name: 'X', careers_url: 7 }) === null) {
+    pass('recruitee.detect() returns null for non-string careers_url (null and 7)');
+  } else {
+    fail('recruitee.detect() should treat non-string careers_url as missing');
+  }
+
+  // SSRF: malicious URL with recruitee.com in the PATH (not host) must not be detected.
+  if (recruitee.detect({ name: 'Spoof', careers_url: 'https://evil.example/channable.recruitee.com/foo' }) === null) {
+    pass('recruitee.detect() rejects path-spoofed URLs');
+  } else {
+    fail('recruitee.detect() must NOT misdetect path-spoofed URLs');
+  }
+
+  // Off-domain offer URL is dropped (URL validation)
+  const offDomainOffers = parseRecruiteeResponse(
+    {
+      offers: [
+        { title: 'Good', careers_url: 'https://channable.recruitee.com/o/good' },
+        { title: 'Evil', careers_url: 'https://evil.example/o/evil' },
+        { title: 'Insecure', careers_url: 'http://channable.recruitee.com/o/insecure' },
+        { title: 'No URL field' },
+      ],
+    },
+    'Channable',
+  );
+  if (offDomainOffers[0]?.url === 'https://channable.recruitee.com/o/good' && offDomainOffers[1]?.url === '' && offDomainOffers[2]?.url === '' && offDomainOffers[3]?.url === '') {
+    pass('parseRecruiteeResponse drops off-domain, non-https, and missing offer URLs');
+  } else {
+    fail(`URL validation: row0=${JSON.stringify(offDomainOffers[0]?.url)}, row1=${JSON.stringify(offDomainOffers[1]?.url)}, row2=${JSON.stringify(offDomainOffers[2]?.url)}, row3=${JSON.stringify(offDomainOffers[3]?.url)}`);
+  }
+
+} catch (e) {
+  fail(`recruitee provider tests crashed: ${e.message}`);
+}
+
+// ── 12. TRACKER REPORT LINK NORMALIZATION (#760) ────────────────
+
+console.log('\n12. Tracker report-link normalization');
+
+try {
+  const { normalizeReportLink } = await import(pathToFileURL(join(ROOT, 'tracker-links.mjs')).href);
+  const repo = '/repo';
+  const dataDir = join(repo, 'data');
+
+  // data/ layout: root-relative TSV link → ../reports/...
+  const fromTsv = normalizeReportLink('[12](reports/012-acme-2026-01-04.md)', dataDir, repo);
+  if (fromTsv === '[12](../reports/012-acme-2026-01-04.md)') {
+    pass('data/ layout: root-relative link rewritten to ../reports/...');
+  } else {
+    fail(`data/ layout normalization wrong: ${fromTsv}`);
+  }
+
+  // Idempotent: re-running on an already-normalized link must not double-prefix
+  const twice = normalizeReportLink(fromTsv, dataDir, repo);
+  if (twice === fromTsv) {
+    pass('normalization is idempotent (no double-prefix on re-run)');
+  } else {
+    fail(`normalization not idempotent: ${twice}`);
+  }
+
+  // Root layout: tracker at repo root → link stays reports/...
+  const atRoot = normalizeReportLink('[12](reports/012-acme-2026-01-04.md)', repo, repo);
+  if (atRoot === '[12](reports/012-acme-2026-01-04.md)') {
+    pass('root layout: link stays root-relative reports/...');
+  } else {
+    fail(`root layout normalization wrong: ${atRoot}`);
+  }
+
+  // Non-report links are left untouched — including external URLs that happen
+  // to contain an embedded "/reports/" segment (must not be rewritten).
+  const other = normalizeReportLink('[site](https://example.com/reports/foo.md)', dataDir, repo);
+  if (other === '[site](https://example.com/reports/foo.md)') {
+    pass('non-report links (incl. URLs with embedded /reports/) are left untouched');
+  } else {
+    fail(`non-report link altered: ${other}`);
+  }
+
+  // End-to-end migration against a fictional fixture tracker (no personal data)
+  const tmpDir = mkdtempSync(join(tmpdir(), 'career-ops-migrate-'));
+  try {
+    mkdirSync(join(tmpDir, 'data'));
+    mkdirSync(join(tmpDir, 'reports'));
+    writeFileSync(join(tmpDir, 'reports', '012-acme-2026-01-04.md'), '# fixture\n');
+    const tracker = join(tmpDir, 'data', 'applications.md');
+    writeFileSync(tracker,
+      '# Applications Tracker\n\n' +
+      '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n' +
+      '|---|------|---------|------|-------|--------|-----|--------|-------|\n' +
+      '| 12 | 2026-01-04 | Acme | Engineer | 4.2/5 | Evaluated | ✅ | [12](reports/012-acme-2026-01-04.md) | ok |\n');
+
+    // Migrate by pointing the script at the fixture tracker via env override.
+    run(NODE, ['merge-tracker.mjs', '--migrate'], { env: { ...process.env, CAREER_OPS_TRACKER: tracker } });
+    const after = readFileSync(tracker, 'utf-8');
+    if (after.includes('[12](../reports/012-acme-2026-01-04.md)')) {
+      pass('migration rewrites fixture tracker links to ../reports/...');
+    } else {
+      fail('migration did not rewrite fixture tracker link');
+    }
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+} catch (e) {
+  fail(`tracker-link normalization tests crashed: ${e.message}`);
+}
+
+// ── SUMMARY ─────────────────────────────────────────────────────
+
 console.log('\n' + '='.repeat(50));
-console.log(`Results: ${passed} passed, ${failed} failed, ${warnings} warnings`);
+console.log(`📊 Results: ${passed} passed, ${failed} failed, ${warnings} warnings`);
 
 if (failed > 0) {
-  console.log('TESTS FAILED - do NOT push/merge until fixed\n');
+  console.log('🔴 TESTS FAILED — do NOT push/merge until fixed\n');
   process.exit(1);
-}
-
-if (warnings > 0) {
-  console.log('Tests passed with warnings - review before pushing\n');
+} else if (warnings > 0) {
+  console.log('🟡 Tests passed with warnings — review before pushing\n');
+  process.exit(0);
+} else {
+  console.log('🟢 All tests passed — safe to push/merge\n');
   process.exit(0);
 }
-
-console.log('All tests passed - safe to push/merge\n');

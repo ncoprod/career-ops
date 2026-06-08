@@ -4,20 +4,20 @@
 
 ```
                     ┌─────────────────────────────────┐
-                    │        Compatible Agent          │
-                    │  (AGENTS.md + runtime adapter)   │
+                    │         AI Coding CLI Agent      │
+                    │   (reads AGENTS.md + modes/*.md) │
                     └──────────┬──────────────────────┘
                                │
             ┌──────────────────┼──────────────────────┐
             │                  │                       │
      ┌──────▼──────┐   ┌──────▼──────┐   ┌───────────▼────────┐
      │ Single Eval  │   │ Portal Scan │   │   Batch Process    │
-     │ (auto-pipe)  │   │  (scan.md)  │   │   (agent adapter)  │
+     │ (auto-pipe)  │   │  (scan.md)  │   │   (batch-runner)   │
      └──────┬──────┘   └──────┬──────┘   └───────────┬────────┘
             │                  │                       │
             │           ┌──────▼──────┐          ┌────▼─────┐
             │           │ pipeline.md │          │ N workers│
-            │           │ (URL inbox) │          │ (adapter)
+            │           │ (URL inbox) │          │ (headless)
             │           └─────────────┘          └────┬─────┘
             │                                          │
      ┌──────▼──────────────────────────────────────────▼──────┐
@@ -56,16 +56,14 @@
 The batch system processes multiple offers in parallel:
 
 ```
-batch-input.tsv    →  batch-runner.sh  →  N × agent workers
+batch-input.tsv    →  batch-runner.sh  →  N × headless CLI workers
 (id, url, source)     (orchestrator)       (self-contained prompt)
                            │
                     batch-state.tsv
                     (tracks progress)
 ```
 
-Each worker receives the full `batch-prompt.md` plus a short invocation prompt. The verified built-in providers are Claude and Codex. Built-in providers omit dangerous bypass flags by default; trusted-local unsafe execution requires `CAREER_OPS_UNSAFE_AGENT_EXEC=1`. Other runtimes are plugged in through the adapter contract documented in `AGENTS.md`.
-
-Workers produce:
+Each worker is a headless AI CLI instance — the bundled `batch-runner.sh` invokes `claude -p`, but the architecture supports any CLI's headless mode (see the Headless / Batch Mode table in `AGENTS.md` for the correct command per CLI). Workers produce:
 - Report .md
 - PDF
 - Tracker TSV line

@@ -13,9 +13,13 @@
 import { chromium } from 'playwright';
 import { resolve, dirname } from 'path';
 import { readFile } from 'fs/promises';
-import { fileURLToPath, pathToFileURL } from 'url';
+import { mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Ensure output directory exists (fresh setup)
+mkdirSync(resolve(__dirname, 'output'), { recursive: true });
 
 /**
  * Normalize text for ATS compatibility by converting problematic Unicode.
@@ -66,42 +70,21 @@ function normalizeTextForATS(html) {
     t = t.replace(/\u2026/g, () => { bump('ellipsis', 1); return '...'; });
     t = t.replace(/[\u200B\u200C\u200D\u2060\uFEFF]/g, () => { bump('zero-width', 1); return ''; });
     t = t.replace(/\u00A0/g, () => { bump('nbsp', 1); return ' '; });
+    // Arrows often stripped by PDF text extractors \u2014 replace with ASCII for ATS safety.
+    // Consume surrounding whitespace to avoid double-spacing in output.
+    t = t.replace(/\s*\u2192\s*/g, () => { bump('right-arrow', 1); return ' to '; });
+    t = t.replace(/\s*\u2190\s*/g, () => { bump('left-arrow', 1); return ' from '; });
+    t = t.replace(/\s*[\u2191\u2193]\s*/g, () => { bump('vert-arrow', 1); return ' '; });
+    // Middle dot and bullet glyphs garble in some extractors \u2014 replace with pipe.
+    t = t.replace(/\s*\u00B7\s*/g, () => { bump('middot', 1); return ' | '; });
+    t = t.replace(/\s*\u2022\s*/g, () => { bump('bullet', 1); return ' | '; });
+    // Currency symbols sometimes stripped by font-subsetted PDFs \u2014 spell out
+    // the unambiguous ones. \u00A5 is intentionally NOT converted: it maps to both
+    // Japanese Yen (JPY) and Chinese Yuan (CNY), so any spelled-out code would be
+    // wrong for half of users \u2014 better to leave the glyph than emit bad data.
+    t = t.replace(/\u20AC/g, () => { bump('euro', 1); return 'EUR '; });
+    t = t.replace(/\u00A3/g, () => { bump('pound', 1); return 'GBP '; });
     return t;
-  }
-}
-
-function normalizePathForMatch(path) {
-  return resolve(path).replace(/\\/g, '/').toLowerCase();
-}
-
-function isPathInsideAllowedRoots(pathToCheck, allowedRoots) {
-  const normalizedPath = normalizePathForMatch(pathToCheck);
-  return allowedRoots.some((root) => (
-    normalizedPath === root || normalizedPath.startsWith(`${root}/`)
-  ));
-}
-
-function isAllowedResourceUrl(rawUrl, allowedRoots) {
-  let parsed;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-
-  if (parsed.protocol === 'about:' || parsed.protocol === 'data:') {
-    return true;
-  }
-
-  if (parsed.protocol !== 'file:') {
-    return false;
-  }
-
-  try {
-    const localPath = fileURLToPath(parsed);
-    return isPathInsideAllowedRoots(localPath, allowedRoots);
-  } catch {
-    return false;
   }
 }
 
@@ -128,14 +111,6 @@ async function generatePDF() {
 
   inputPath = resolve(inputPath);
   outputPath = resolve(outputPath);
-  const projectRoot = normalizePathForMatch(__dirname);
-
-  if (!isPathInsideAllowedRoots(outputPath, [projectRoot])) {
-    console.error('Refusing to write PDF outside the project directory.');
-    console.error(`Project root: ${__dirname}`);
-    console.error(`Requested output: ${outputPath}`);
-    process.exit(1);
-  }
 
   // Validate format
   const validFormats = ['a4', 'letter'];
@@ -152,23 +127,15 @@ async function generatePDF() {
   let html = await readFile(inputPath, 'utf-8');
 
   // Resolve font paths relative to career-ops/fonts/
-  const inputDir = dirname(inputPath);
-  const assetsDir = resolve(inputDir, 'assets');
   const fontsDir = resolve(__dirname, 'fonts');
-  const fontsBaseUrl = pathToFileURL(`${fontsDir}/`).href;
-  const allowedRoots = [
-    normalizePathForMatch(fontsDir),
-    normalizePathForMatch(assetsDir),
-  ];
-
   html = html.replace(
     /url\(['"]?\.\/fonts\//g,
-    `url('${fontsBaseUrl}`
+    `url('file://${fontsDir}/`
   );
-  // Close any unclosed quotes from the replacement
+  // Close any unclosed quotes from the replacement (handles all font formats)
   html = html.replace(
-    /(file:\/\/\/[^'")]+\.woff2)['"]?\)/g,
-    `$1')`
+    /file:\/\/([^'")]+)\.(woff2?|ttf|otf)['"]?\)/g,
+    `file://$1.$2')`
   );
 
   // Normalize text for ATS compatibility (issue #1)
@@ -181,54 +148,47 @@ async function generatePDF() {
   }
 
   const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
+  try {
+    const page = await browser.newPage();
 
-  await page.route('**/*', async (route) => {
-    const requestUrl = route.request().url();
-    if (isAllowedResourceUrl(requestUrl, allowedRoots)) {
-      await route.continue();
-      return;
-    }
-    await route.abort('blockedbyclient');
-  });
+    // Set content with file base URL for any relative resources
+    await page.setContent(html, {
+      waitUntil: 'networkidle',
+      baseURL: `file://${dirname(inputPath)}/`,
+    });
 
-  // Set content with file base URL for any relative resources
-  await page.setContent(html, {
-    waitUntil: 'networkidle',
-    baseURL: pathToFileURL(`${inputDir}/`).href,
-  });
+    // Wait for fonts to load
+    await page.evaluate(() => document.fonts.ready);
 
-  // Wait for fonts to load
-  await page.evaluate(() => document.fonts.ready);
+    // Generate PDF
+    const pdfBuffer = await page.pdf({
+      format: format,
+      printBackground: true,
+      margin: {
+        top: '0.6in',
+        right: '0.6in',
+        bottom: '0.6in',
+        left: '0.6in',
+      },
+      preferCSSPageSize: false,
+    });
 
-  // Generate PDF
-  const pdfBuffer = await page.pdf({
-    format: format,
-    printBackground: true,
-    margin: {
-      top: '0.6in',
-      right: '0.6in',
-      bottom: '0.6in',
-      left: '0.6in',
-    },
-    preferCSSPageSize: false,
-  });
+    // Write PDF
+    const { writeFile } = await import('fs/promises');
+    await writeFile(outputPath, pdfBuffer);
 
-  // Write PDF
-  const { writeFile } = await import('fs/promises');
-  await writeFile(outputPath, pdfBuffer);
+    // Count pages (approximate from PDF structure)
+    const pdfString = pdfBuffer.toString('latin1');
+    const pageCount = (pdfString.match(/\/Type\s*\/Page[^s]/g) || []).length;
 
-  // Count pages (approximate from PDF structure)
-  const pdfString = pdfBuffer.toString('latin1');
-  const pageCount = (pdfString.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    console.log(`✅ PDF generated: ${outputPath}`);
+    console.log(`📊 Pages: ${pageCount}`);
+    console.log(`📦 Size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
 
-  await browser.close();
-
-  console.log(`✅ PDF generated: ${outputPath}`);
-  console.log(`📊 Pages: ${pageCount}`);
-  console.log(`📦 Size: ${(pdfBuffer.length / 1024).toFixed(1)} KB`);
-
-  return { outputPath, pageCount, size: pdfBuffer.length };
+    return { outputPath, pageCount, size: pdfBuffer.length };
+  } finally {
+    await browser.close();
+  }
 }
 
 generatePDF().catch((err) => {
