@@ -216,6 +216,70 @@ for (const f of userFiles) {
 
 console.log('\n6. Personal data leak check');
 
+// Cross-runtime command shims and updater coverage live here because they are
+// system/user boundary checks, not provider-specific behavior tests.
+const opencodeCommands = [
+  '.opencode/commands/career-ops.md',
+  '.opencode/commands/career-ops-scan.md',
+  '.opencode/commands/career-ops-batch.md',
+];
+for (const f of opencodeCommands) {
+  if (fileExists(f)) {
+    pass(`OpenCode command shim exists: ${f}`);
+  } else {
+    fail(`Missing OpenCode command shim: ${f}`);
+  }
+}
+
+const updateSystemSource = readFile('update-system.mjs');
+const requiredSystemPaths = [
+  'modes/followup.md',
+  'modes/interview-prep.md',
+  'modes/update.md',
+  'modes/tr/',
+  'modes/ua/',
+  '.claude-plugin/',
+  '.opencode/commands/',
+  '.qwen/',
+  'SECURITY.md',
+  'README.ja.md',
+  'package-lock.json',
+];
+for (const path of requiredSystemPaths) {
+  if (updateSystemSource.includes(`'${path}'`)) {
+    pass(`Updater system path covered: ${path}`);
+  } else {
+    fail(`Updater SYSTEM_PATHS missing: ${path}`);
+  }
+}
+
+const batchRunnerSource = readFile('batch/batch-runner.sh');
+if (batchRunnerSource.includes('CAREER_OPS_AGENT') && batchRunnerSource.includes('codex exec')) {
+  pass('Batch runner supports Codex provider selection');
+} else {
+  fail('Batch runner missing CAREER_OPS_AGENT/Codex provider support');
+}
+
+if (!batchRunnerSource.includes('local -a claude_args=(-p --dangerously-skip-permissions)') &&
+    !batchRunnerSource.includes('local -a codex_args=(exec --dangerously-bypass-approvals-and-sandbox)')) {
+  pass('Batch runner does not enable unsafe bypass flags by default');
+} else {
+  fail('Batch runner enables unsafe bypass flags by default');
+}
+
+if (/below-min-score" "\$retries"[\s\S]{0,220}return 0/.test(batchRunnerSource)) {
+  pass('Batch min-score gate returns before completed state update');
+} else {
+  fail('Batch min-score gate can fall through to completed state update');
+}
+
+const dependencyReviewSource = readFile('.github/workflows/dependency-review.yml');
+if (!/continue-on-error:\s*true/.test(dependencyReviewSource)) {
+  pass('Dependency review blocks high-severity dependency regressions');
+} else {
+  fail('Dependency review is advisory-only despite fail-on-severity');
+}
+
 const leakPatterns = [
   'Santiago', 'santifer.io', 'Santifer iRepair', 'Zinkee', 'ALMAS',
   'hi@santifer.io', '688921377', '/Users/santifer/',

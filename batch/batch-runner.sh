@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# career-ops batch runner — standalone orchestrator for claude -p workers
-# Reads batch-input.tsv, delegates each offer to a claude -p worker,
+# career-ops batch runner — standalone orchestrator for AI CLI workers
+# Reads batch-input.tsv, delegates each offer to a headless worker,
 # tracks state in batch-state.tsv for resumability.
 #
-# NOTE: This script is Claude Code-specific. It uses claude -p with
-# --append-system-prompt-file and can optionally add
-# --dangerously-skip-permissions when CAREER_OPS_UNSAFE_AGENT_EXEC=1.
-# that are not available in other CLIs. Multi-CLI support is out of scope
-# for now — contributions welcome.
+# Supported providers:
+#   - claude: claude -p with --append-system-prompt-file
+#   - codex: codex exec reading a combined prompt from stdin
+# Unsafe bypass flags are omitted by default and only enabled when
+# CAREER_OPS_UNSAFE_AGENT_EXEC=1.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -34,13 +34,14 @@ RETRY_FAILED=false
 START_FROM=0
 MAX_RETRIES=2
 MIN_SCORE=0
-MODEL=""  # empty = let claude -p use the Claude Max default
+AGENT="${CAREER_OPS_AGENT:-claude}"
+MODEL=""  # empty = let the selected CLI use its default model
 UNSAFE_AGENT_EXEC="${CAREER_OPS_UNSAFE_AGENT_EXEC:-false}"
 
 usage() {
   cat <<'USAGE'
-career-ops batch runner — process job offers in batch via claude -p workers
-Uses your default Claude model (Claude Max subscription).
+career-ops batch runner — process job offers in batch via headless AI workers
+Uses Claude Code by default; set CAREER_OPS_AGENT=codex for Codex CLI.
 
 Usage: batch-runner.sh [OPTIONS]
 
@@ -51,9 +52,9 @@ Options:
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
   --min-score N        Skip PDF/tracker for offers scoring below N (default: 0 = off)
-  --model NAME         Claude model passed to `claude -p --model` (default:
-                       unset = Claude Max default). Use a cheaper model for
-                       large batches, e.g. `--model claude-sonnet-4-6`.
+  --agent NAME         Worker CLI: claude or codex (default: CAREER_OPS_AGENT or claude)
+  --model NAME         Model passed to the selected CLI (default: CLI default).
+                       Use a cheaper model for large batches when supported.
   -h, --help           Show this help
 
 Files:
@@ -87,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --start-from) START_FROM="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
     --min-score) MIN_SCORE="$2"; shift 2 ;;
+    --agent) AGENT="$2"; shift 2 ;;
     --model) MODEL="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
@@ -131,10 +133,18 @@ check_prerequisites() {
     exit 1
   fi
 
-  if ! command -v claude &>/dev/null; then
-    echo "ERROR: 'claude' CLI not found in PATH."
-    exit 1
-  fi
+  case "$AGENT" in
+    claude|codex)
+      if ! command -v "$AGENT" &>/dev/null; then
+        echo "ERROR: '$AGENT' CLI not found in PATH."
+        exit 1
+      fi
+      ;;
+    *)
+      echo "ERROR: unsupported CAREER_OPS_AGENT '$AGENT' (expected: claude or codex)."
+      exit 1
+      ;;
+  esac
 
   mkdir -p "$LOGS_DIR" "$TRACKER_DIR" "$REPORTS_DIR"
 }
@@ -362,20 +372,42 @@ process_offer() {
     -e "s|{{ID}}|${esc_id}|g" \
     "$PROMPT_FILE" > "$resolved_prompt"
 
-  # Launch claude -p worker.
-  # Model defaults to the Claude Max subscription default unless --model was
-  # passed. Building the command in an array keeps quoting safe regardless.
-  local -a claude_args=(-p)
-  if [[ "$UNSAFE_AGENT_EXEC" == "1" || "$UNSAFE_AGENT_EXEC" == "true" ]]; then
-    claude_args+=(--dangerously-skip-permissions)
-  fi
-  if [[ -n "$MODEL" ]]; then
-    claude_args+=(--model "$MODEL")
-  fi
-  claude_args+=(--append-system-prompt-file "$resolved_prompt" "$prompt")
-
   local exit_code=0
-  claude "${claude_args[@]}" > "$log_file" 2>&1 || exit_code=$?
+  case "$AGENT" in
+    claude)
+      # Building the command in an array keeps quoting safe regardless of paths.
+      local -a claude_args=(-p)
+      if [[ "$UNSAFE_AGENT_EXEC" == "1" || "$UNSAFE_AGENT_EXEC" == "true" ]]; then
+        claude_args+=(--dangerously-skip-permissions)
+      fi
+      if [[ -n "$MODEL" ]]; then
+        claude_args+=(--model "$MODEL")
+      fi
+      claude_args+=(--append-system-prompt-file "$resolved_prompt" "$prompt")
+      claude "${claude_args[@]}" > "$log_file" 2>&1 || exit_code=$?
+      ;;
+    codex)
+      local codex_input="$BATCH_DIR/.resolved-codex-${id}.md"
+      {
+        printf '%s\n\n' 'Career-ops batch worker instructions:'
+        cat "$resolved_prompt"
+        printf '\n\nTask:\n%s\n' "$prompt"
+      } > "$codex_input"
+
+      local -a codex_args=(exec -C "$PROJECT_DIR")
+      if [[ "$UNSAFE_AGENT_EXEC" == "1" || "$UNSAFE_AGENT_EXEC" == "true" ]]; then
+        codex_args+=(--dangerously-bypass-approvals-and-sandbox)
+      else
+        codex_args+=(--full-auto)
+      fi
+      if [[ -n "$MODEL" ]]; then
+        codex_args+=(--model "$MODEL")
+      fi
+      codex_args+=(-)
+      codex "${codex_args[@]}" < "$codex_input" > "$log_file" 2>&1 || exit_code=$?
+      rm -f "$codex_input"
+      ;;
+  esac
 
   # Cleanup resolved prompt
   rm -f "$resolved_prompt"
@@ -397,7 +429,7 @@ process_offer() {
       if (( $(echo "$score < $MIN_SCORE" | bc -l) )); then
         update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "$score" "below-min-score" "$retries"
         echo "    ⏭️  Skipped (score: $score < min-score: $MIN_SCORE)"
-        continue
+        return 0
       fi
     fi
 

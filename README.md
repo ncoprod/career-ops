@@ -123,7 +123,7 @@ See [docs/SETUP.md](docs/SETUP.md) for the full setup guide.
 
 ## Gemini CLI Integration
 
-Career-ops supports [Gemini CLI](https://github.com/google-gemini/gemini-cli) natively, the same way it supports Claude Code and OpenCode. All 15 slash commands are available, using the same `modes/*.md` evaluation logic.
+Career-ops supports [Gemini CLI](https://github.com/google-gemini/gemini-cli) through `GEMINI.md` project context and the same `modes/*.md` evaluation logic used by the other runtimes.
 
 ### Option A: Native Gemini CLI (Recommended)
 
@@ -139,15 +139,13 @@ gemini auth
 cd career-ops
 gemini
 
-# 4. Use slash commands just like Claude Code
-/career-ops "Senior AI Engineer at Anthropic..."
-/career-ops-evaluate --file ./jds/openai.txt
-/career-ops-scan
-/career-ops-pdf
-/career-ops-tracker
+# 4. Ask Gemini to run a career-ops mode
+Run career-ops scan mode
+Evaluate ./jds/openai.txt with career-ops oferta mode
+Generate an ATS PDF with career-ops pdf mode
 ```
 
-The `GEMINI.md` file is auto-loaded as context. All 15 commands are defined in `.gemini/commands/*.toml`.
+The `GEMINI.md` file is auto-loaded as context. Native Gemini slash-command shims can be added later under `.gemini/commands/`; this checkout does not currently ship those files.
 
 ### Option B: Standalone API Script (No CLI install needed)
 
