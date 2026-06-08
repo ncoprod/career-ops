@@ -361,7 +361,6 @@ async function apply() {
       'modes/update.md',
     ];
     for (const path of BOOTSTRAP_PATHS) {
-      if (SYSTEM_PATHS.includes(path)) continue; // already in main loop
       try {
         git('checkout', 'FETCH_HEAD', '--', path);
         updated.push(path);

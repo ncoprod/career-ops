@@ -220,8 +220,21 @@ console.log('\n6. Personal data leak check');
 // system/user boundary checks, not provider-specific behavior tests.
 const opencodeCommands = [
   '.opencode/commands/career-ops.md',
-  '.opencode/commands/career-ops-scan.md',
+  '.opencode/commands/career-ops-apply.md',
   '.opencode/commands/career-ops-batch.md',
+  '.opencode/commands/career-ops-compare.md',
+  '.opencode/commands/career-ops-contact.md',
+  '.opencode/commands/career-ops-deep.md',
+  '.opencode/commands/career-ops-evaluate.md',
+  '.opencode/commands/career-ops-followup.md',
+  '.opencode/commands/career-ops-latex.md',
+  '.opencode/commands/career-ops-patterns.md',
+  '.opencode/commands/career-ops-pdf.md',
+  '.opencode/commands/career-ops-pipeline.md',
+  '.opencode/commands/career-ops-project.md',
+  '.opencode/commands/career-ops-scan.md',
+  '.opencode/commands/career-ops-tracker.md',
+  '.opencode/commands/career-ops-training.md',
 ];
 for (const f of opencodeCommands) {
   if (fileExists(f)) {
