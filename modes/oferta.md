@@ -1,6 +1,24 @@
 # Mode: job — Full A-G Evaluation
 
-When the candidate pastes a job (text or URL), ALWAYS deliver the 7 blocks (A-F evaluation + G legitimacy):
+When the candidate pastes a job (text or URL), deliver the 7 blocks (A-F
+evaluation + G legitimacy) unless the URL liveness gate below cannot verify an
+active public posting:
+
+## URL liveness gate
+
+If the candidate provided a public HTTP(S) URL, verify the posting before
+spending tokens on the full A-G evaluation:
+
+1. Run `node check-liveness.mjs "{url}"` (or `npm run liveness -- "{url}"`).
+2. If the URL is active, continue to Step 0 and generate blocks A-G.
+3. If the result is expired, do not generate the full evaluation. Tell the
+   candidate the posting is closed.
+4. If the result is uncertain (also a non-zero exit), do not generate the full
+   evaluation yet. Ask for manual verification or pasted JD text. Do not describe
+   uncertain as closed; it may be a timeout, login wall, 403, or bot challenge.
+
+Skip this gate for pasted JD text, `local:` files, recruiter-supplied private
+JDs, or any source without a public URL to verify.
 
 ## Step 0 — Archetype Detection
 

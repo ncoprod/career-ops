@@ -7,9 +7,32 @@ Interactive mode for when the candidate is filling out an application form in Ch
 - **Best with Playwright in visible mode**: In visible mode, the candidate sees the browser and Claude can interact with the page.
 - **Without Playwright**: the candidate shares a screenshot or pastes the questions manually.
 
+## Liveness gate before generation
+
+Before generating application answers, cover letters, tailored CVs, or any other
+application materials for a URL-backed role, verify the job posting is still
+active:
+
+1. If the matched report, pipeline entry, or tracker row has a public HTTP(S)
+   URL, run `node check-liveness.mjs "{url}"` (or `npm run liveness -- "{url}"`)
+   before generation.
+2. If the posting is active, continue with the workflow.
+3. If the result is expired, stop before generating materials. Tell the
+   candidate the role is closed, mark the matched tracker row as `Discarded`
+   when present, and ask whether they want to keep the report only as an archive.
+4. If the result is uncertain (also a non-zero exit), stop before generating
+   materials and ask for manual verification. Mark a matched pipeline entry as
+   `[!] needs manual verification` when present, but do not mark tracker rows as
+   `Discarded`; uncertain can mean timeout, login wall, 403, or bot challenge.
+
+If the candidate is already on a visible application form with active questions,
+that visible form can count as the active-page evidence. Otherwise do not spend
+tokens on unverified roles.
+
 ## Workflow
 
 ```text
+0. VERIFY      → Liveness-gate URL-backed or unconfirmed roles before generation
 1. DETECT      → Read active Chrome tab (screenshot/URL/title)
 2. IDENTIFY    → Extract company + role from the page
 3. SEARCH      → Match against existing reports in reports/

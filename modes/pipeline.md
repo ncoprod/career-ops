@@ -6,11 +6,21 @@ Process job URLs stored in `data/pipeline.md`. The user adds URLs at any time an
 
 1. **Read** `data/pipeline.md` → search for `- [ ]` items in the "Pending" section
 2. **For each pending URL**:
-   a. Calculate the next sequential `REPORT_NUM` (read `reports/`, take the highest number + 1)
-   b. **Extract JD** using Playwright (browser_navigate + browser_snapshot) → WebFetch → WebSearch
-   c. If the URL is not accessible → mark as `- [!]` with a note and continue
-   d. **Execute full auto-pipeline**: Evaluation A-F → Report .md → PDF (if score >= `auto_pdf_score_threshold`) → Tracker
-   e. **Move from "Pending" to "Processed"**: `- [x] #NNN | URL | Company | Role | Score/5 | PDF ✅/❌`
+   a. If the item is a public HTTP(S) URL, run `node check-liveness.mjs "{url}"`
+      (or `npm run liveness -- "{url}"`) before reserving a report number.
+   b. If the result is expired, mark as
+      `- [!] {url} - inactive by liveness gate` and continue.
+   c. If the result is uncertain (also a non-zero exit), mark as
+      `- [!] {url} - needs manual verification` and continue. Do not describe
+      uncertain as closed; it can mean timeout, login wall, 403, or bot
+      challenge.
+   d. Do not reserve a report number, run evaluation, write a report, generate a
+      PDF, or update the tracker unless the liveness result is active.
+   e. Calculate the next sequential `REPORT_NUM` (read `reports/`, take the highest number + 1)
+   f. **Extract JD** using Playwright (browser_navigate + browser_snapshot) → WebFetch → WebSearch
+   g. If the URL is not accessible → mark as `- [!]` with a note and continue
+   h. **Execute full auto-pipeline**: Evaluation A-F → Report .md → PDF (if score >= `auto_pdf_score_threshold`) → Tracker
+   i. **Move from "Pending" to "Processed"**: `- [x] #NNN | URL | Company | Role | Score/5 | PDF ✅/❌`
 
    **About the PDF gate (configurable):** Read `config/profile.yml` → `auto_pdf_score_threshold`. If the key does not exist, default to `3.0` (this mode's original gate). If the evaluation score is less than the threshold, skip PDF generation: write the report normally, show in the header `**PDF:** not generated — run /career-ops pdf {company-slug} to create on demand`, and mark PDF ❌ in the tracker. If the score is ≥ threshold, generate the PDF as usual.
 

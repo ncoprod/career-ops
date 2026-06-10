@@ -207,6 +207,16 @@ Türkçe iş ilanlarında ve sözleşme müzakerelerinde, yabancı piyasalarda k
 
 ## Genel Kurallar
 
+### URL liveness gate (zorunlu)
+
+Herkese acik bir HTTP(S) URL icin degerlendirme, pipeline, PDF veya basvuru materyali uretmeden once `node check-liveness.mjs "{url}"` calistir (veya `npm run liveness -- "{url}"`). Bunu rapor numarasi ayirmadan, rapor yazmadan, PDF uretmeden ve tracker guncellemeden once yap.
+
+- `active`: devam et.
+- `expired`: dur. Tracker `Discarded` olabilir; pipeline `[!] {url} - inactive by liveness gate` olarak isaretlenebilir.
+- `uncertain`: dur ve manuel dogrulama ya da yapistirilmis JD iste. Pipeline `[!] needs manual verification` olabilir, ama tracker satirlarini `Discarded` yapma; timeout, login wall, 403 veya bot challenge `uncertain` uretmis olabilir.
+
+Bu kural "her zaman tum bloklari ver", "her zaman degerlendir" veya "her zaman materyal uret" gibi mode talimatlarindan ustundur.
+
 ### ASLA
 
 1. Deneyim veya metrik uydurma

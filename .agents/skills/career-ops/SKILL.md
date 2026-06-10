@@ -75,23 +75,41 @@ Or paste a JD directly to run the full pipeline.
 
 After determining the mode, load the necessary files before executing:
 
+### Language mode resolution
+
+Default to `modes/`. If the user explicitly asks for a language mode, or
+`config/profile.yml` sets `language.modes_dir`, use that directory when it has
+the requested mode files.
+
+Localized command mapping:
+
+| Default mode | German | French | Japanese | Portuguese | Russian | Turkish | Ukrainian |
+|--------------|--------|--------|----------|------------|---------|---------|-----------|
+| `oferta` | `angebot` | `offre` | `kyujin` | `oferta` | `oferta` | `is-ilani` | `oferta` |
+| `apply` | `bewerben` | `postuler` | `oubo` | `aplicar` | `apply` | `basvuru` | `apply` |
+| `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` |
+
+When a localized directory is active, read `{modes_dir}/_shared.md` plus the
+mapped localized mode file. If a localized file does not exist for the requested
+mode, fall back to the default `modes/_shared.md` + `modes/{mode}.md`.
+
 ### Modes that require `_shared.md` + their mode file:
-Read `modes/_shared.md` + `modes/{mode}.md`
+Read the resolved shared file + resolved mode file.
 
 Applies to: `auto-pipeline`, `oferta`, `ofertas`, `pdf`, `contacto`, `apply`, `pipeline`, `scan`, `batch`
 
 ### Standalone modes (only their mode file):
-Read `modes/{mode}.md`
+Read the resolved mode file.
 
 Applies to: `tracker`, `deep`, `interview-prep`, `training`, `project`, `patterns`, `followup`
 
 ### Modes delegated to subagent:
-For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as Agent with the content of `_shared.md` + `modes/{mode}.md` injected into the subagent prompt.
+For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as Agent with the content of the resolved shared file + resolved mode file injected into the subagent prompt.
 
 ```
 Agent(
   subagent_type="general-purpose",
-  prompt="[content of modes/_shared.md]\n\n[content of modes/{mode}.md]\n\n[invocation-specific data]",
+  prompt="[content of resolved shared file]\n\n[content of resolved mode file]\n\n[invocation-specific data]",
   description="career-ops {mode}"
 )
 ```

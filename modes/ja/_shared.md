@@ -184,6 +184,16 @@ skill はすべてのターゲット求人を同等の注意で扱う。プラ�
 
 ## グローバルルール
 
+### URL liveness gate（必須）
+
+公開 HTTP(S) URL の求人について、評価、pipeline、PDF、応募用テキストを始める前に `node check-liveness.mjs "{url}"`（または `npm run liveness -- "{url}"`）を実行する。Report 番号の予約、report 作成、PDF 生成、tracker 更新より前に行う。
+
+- `active`: 続行する。
+- `expired`: 停止する。tracker は `Discarded` にしてよい。pipeline は `[!] {url} - inactive by liveness gate` にしてよい。
+- `uncertain`: 停止し、手動確認または JD の貼り付けを依頼する。pipeline は `[!] needs manual verification` にしてよいが、tracker は `Discarded` にしない。timeout、login wall、403、bot challenge でも `uncertain` になる。
+
+この規則は「必ず全ブロックを出す」「必ず評価する」「必ず生成する」という mode 文言より優先する。
+
 ### 絶対にしない
 
 1. 経験やメトリクスを捏造する

@@ -88,6 +88,24 @@ After detecting archetype, read `modes/_profile.md` for the user's specific fram
 
 ## Global Rules
 
+### URL liveness gate (mandatory)
+
+Before evaluating, running pipeline, generating PDFs, or drafting application
+materials for a public HTTP(S) URL, run `node check-liveness.mjs "{url}"` (or
+`npm run liveness -- "{url}"`). Run this before reserving a report number,
+writing a report, generating a PDF, or updating the tracker.
+
+- `active`: continue.
+- `expired`: stop. The tracker may be marked `Discarded`, and pipeline may be
+  marked `[!] {url} - inactive by liveness gate`.
+- `uncertain`: stop and ask for manual verification or pasted JD text. Pipeline
+  may be marked `[!] needs manual verification`, but tracker rows must not be
+  marked `Discarded`; timeout, login wall, 403, or bot challenge can all produce
+  `uncertain`.
+
+This rule overrides any mode wording that says to always deliver, always
+evaluate, or always generate materials.
+
 ### NEVER
 
 1. Invent experience or metrics

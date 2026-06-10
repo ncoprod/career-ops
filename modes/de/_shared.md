@@ -161,6 +161,16 @@ In deutschen Stellenanzeigen und Vertragsverhandlungen tauchen Begriffe auf, die
 
 ## Globale Regeln
 
+### URL-Liveness-Gate (Pflicht)
+
+Vor jeder Bewertung, Pipeline-Verarbeitung, PDF-Erstellung oder Bewerbungstexten fuer eine oeffentliche HTTP(S)-URL zuerst `node check-liveness.mjs "{url}"` ausfuehren (oder `npm run liveness -- "{url}"`). Das passiert vor Report-Nummer, Report, PDF und Tracker-Update.
+
+- `active`: fortfahren.
+- `expired`: stoppen. Tracker darf `Discarded` werden; Pipeline darf `[!] {url} - inactive by liveness gate` werden.
+- `uncertain`: stoppen und manuelle Pruefung oder eingefuegten JD anfordern. Pipeline darf `[!] needs manual verification` werden, aber Tracker-Zeilen nicht als `Discarded` markieren; Timeout, Login-Wall, 403 oder Bot-Challenge koennen `uncertain` ausloesen.
+
+Diese Regel hat Vorrang vor Mode-Texten wie "immer alle Bloecke liefern", "immer bewerten" oder "immer Unterlagen generieren".
+
 ### NIEMALS
 
 1. Erfahrung oder Kennzahlen erfinden

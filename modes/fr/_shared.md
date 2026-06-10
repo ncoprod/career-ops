@@ -165,6 +165,16 @@ Dans les offres et negociations francophones, certains termes n'existent pas sur
 
 ## Regles globales
 
+### Gate de liveness URL (obligatoire)
+
+Avant toute evaluation, execution de pipeline, generation de PDF ou generation de contenus de candidature pour une URL HTTP(S) publique, lancer `node check-liveness.mjs "{url}"` (ou `npm run liveness -- "{url}"`). Le faire avant de reserver un numero de report, d'ecrire un report, de generer un PDF ou de mettre a jour le tracker.
+
+- `active` : continuer.
+- `expired` : stopper. Le tracker peut passer a `Discarded`; la pipeline peut etre marquee `[!] {url} - inactive by liveness gate`.
+- `uncertain` : stopper et demander une verification manuelle ou le JD colle. La pipeline peut etre marquee `[!] needs manual verification`, mais ne pas marquer le tracker en `Discarded`; timeout, login wall, 403 ou bot challenge peuvent produire `uncertain`.
+
+Cette regle prime sur les formulations de mode du type "toujours livrer", "toujours evaluer" ou "toujours generer".
+
 ### JAMAIS
 
 1. Inventer de l'experience ou des metriques

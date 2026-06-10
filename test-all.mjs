@@ -286,6 +286,7 @@ const systemFiles = [
   'modes/_shared.md', 'modes/_profile.template.md',
   'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
   'templates/states.yml', 'templates/cv-template.html',
+  '.agents/skills/career-ops/SKILL.md',
   '.claude/skills/career-ops/SKILL.md',
 ];
 
@@ -405,6 +406,70 @@ if (shared.includes('_profile.md')) {
   pass('_shared.md references _profile.md');
 } else {
   fail('_shared.md does NOT reference _profile.md');
+}
+
+const ofertaMode = readFile('modes/oferta.md');
+const applyMode = readFile('modes/apply.md');
+const autoPipelineMode = readFile('modes/auto-pipeline.md');
+const pipelineMode = readFile('modes/pipeline.md');
+if (
+  ofertaMode.includes('check-liveness.mjs') &&
+  ofertaMode.includes('do not generate the') &&
+  ofertaMode.includes('uncertain as closed') &&
+  applyMode.includes('check-liveness.mjs') &&
+  applyMode.includes('Before generating application answers') &&
+  applyMode.includes('do not mark tracker rows as') &&
+  autoPipelineMode.includes('check-liveness.mjs') &&
+  autoPipelineMode.includes('before extraction, A-G evaluation') &&
+  autoPipelineMode.includes('uncertain as closed') &&
+  pipelineMode.includes('check-liveness.mjs') &&
+  pipelineMode.includes('needs manual verification') &&
+  pipelineMode.includes('reserve a report number') &&
+  pipelineMode.includes('unless the liveness result is active')
+) {
+  pass('Modes gate URL-backed evaluation/application work on liveness');
+} else {
+  fail('Modes missing liveness gate before evaluation/application generation');
+}
+
+const livenessSharedModes = [
+  'modes/_shared.md',
+  'modes/de/_shared.md',
+  'modes/fr/_shared.md',
+  'modes/ja/_shared.md',
+  'modes/pt/_shared.md',
+  'modes/ru/_shared.md',
+  'modes/tr/_shared.md',
+  'modes/ua/_shared.md',
+];
+const sharedMissingLiveness = livenessSharedModes.filter(modePath => {
+  const mode = readFile(modePath);
+  return !(
+    mode.includes('check-liveness.mjs') &&
+    mode.includes('active') &&
+    mode.includes('expired') &&
+    mode.includes('uncertain') &&
+    mode.includes('Discarded') &&
+    mode.includes('[!] needs manual verification')
+  );
+});
+if (sharedMissingLiveness.length === 0) {
+  pass('Shared modes gate URL-backed work on liveness across locales');
+} else {
+  fail(`Shared modes missing liveness gate: ${sharedMissingLiveness.join(', ')}`);
+}
+
+const careerOpsSkill = readFile('.agents/skills/career-ops/SKILL.md');
+if (
+  careerOpsSkill.includes('language.modes_dir') &&
+  careerOpsSkill.includes('{modes_dir}/_shared.md') &&
+  careerOpsSkill.includes('resolved shared file') &&
+  careerOpsSkill.includes('`oferta` | `angebot` | `offre` | `kyujin`') &&
+  careerOpsSkill.includes('`apply` | `bewerben` | `postuler` | `oubo`')
+) {
+  pass('career-ops skill resolves localized shared + mode files');
+} else {
+  fail('career-ops skill still hardcodes default mode loading for localized modes');
 }
 
 // ── 9. LOCAL PARSER CONTRACT ────────────────────────────────────

@@ -145,6 +145,16 @@
 
 ## Глобальные правила
 
+### URL liveness gate (обязательно)
+
+Перед оценкой, pipeline, PDF или материалами отклика для публичной HTTP(S) URL сначала выполнить `node check-liveness.mjs "{url}"` (или `npm run liveness -- "{url}"`). Это делается до резервирования номера отчёта, записи отчёта, генерации PDF и обновления tracker.
+
+- `active`: продолжить.
+- `expired`: остановиться. Tracker можно отметить как `Discarded`; pipeline можно отметить `[!] {url} - inactive by liveness gate`.
+- `uncertain`: остановиться и попросить ручную проверку или вставленный JD. Pipeline можно отметить `[!] needs manual verification`, но строки tracker нельзя отмечать как `Discarded`; timeout, login wall, 403 или bot challenge могут дать `uncertain`.
+
+Это правило важнее формулировок mode вроде "всегда выдать блоки", "всегда оценить" или "всегда сгенерировать материалы".
+
 ### НИКОГДА
 
 1. Выдумывать опыт или метрики

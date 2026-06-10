@@ -1,8 +1,27 @@
 # Mode: auto-pipeline — Full Automatic Pipeline
 
-When the user pastes a JD (text or URL) without an explicit sub-command, execute the ENTIRE pipeline in sequence:
+When the user pastes a JD (text or URL) without an explicit sub-command,
+execute the ENTIRE pipeline in sequence after any URL-backed input passes the
+liveness gate below:
 
 ## Step 0 — Extract JD
+
+### URL liveness gate
+
+If the input is a public HTTP(S) URL, verify it before extraction, A-G evaluation,
+report writing, PDF generation, or tracker updates:
+
+1. Run `node check-liveness.mjs "{url}"` (or `npm run liveness -- "{url}"`).
+2. If the URL is active, continue with the extraction strategy below.
+3. If the result is expired, stop before A-G/report/PDF/tracker work and tell
+   the candidate the posting is closed.
+4. If the result is uncertain (also a non-zero exit), stop before
+   A-G/report/PDF/tracker work and ask for manual verification or pasted JD text.
+   Do not describe uncertain as closed; it may be a timeout, login wall, 403, or
+   bot challenge.
+
+Skip this gate only when the input is pasted JD text, a `local:` file, or a
+private/recruiter-supplied posting with no public URL to verify.
 
 If the input is a **URL** (not pasted JD text), follow this strategy to extract the content:
 
