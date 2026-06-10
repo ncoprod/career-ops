@@ -89,9 +89,12 @@ Localized command mapping:
 | `apply` | `bewerben` | `postuler` | `oubo` | `aplicar` | `apply` | `basvuru` | `apply` |
 | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` | `pipeline` |
 
-When a localized directory is active, read `{modes_dir}/_shared.md` plus the
-mapped localized mode file. If a localized file does not exist for the requested
-mode, fall back to the default `modes/_shared.md` + `modes/{mode}.md`.
+When a localized directory is active, read `{modes_dir}/_shared.md` if it exists.
+Then read the mapped localized mode file when it exists. If a localized mode file
+does not exist for the requested mode, keep the localized shared file and fall
+back only for the mode file: `{modes_dir}/_shared.md` + `modes/{mode}.md`.
+If the localized shared file itself does not exist, fall back to the default
+`modes/_shared.md` + `modes/{mode}.md`.
 
 ### Modes that require `_shared.md` + their mode file:
 Read the resolved shared file + resolved mode file.

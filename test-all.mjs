@@ -464,6 +464,7 @@ if (
   careerOpsSkill.includes('language.modes_dir') &&
   careerOpsSkill.includes('{modes_dir}/_shared.md') &&
   careerOpsSkill.includes('resolved shared file') &&
+  careerOpsSkill.includes('keep the localized shared file') &&
   careerOpsSkill.includes('`oferta` | `angebot` | `offre` | `kyujin`') &&
   careerOpsSkill.includes('`apply` | `bewerben` | `postuler` | `oubo`')
 ) {
